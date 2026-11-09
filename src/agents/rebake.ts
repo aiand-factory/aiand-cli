@@ -1,3 +1,5 @@
+import { printNotes, safeLine } from "../cli/output.js";
+import { redactSecrets } from "../cli/redact.js";
 import { normalizeBaseUrl, redactUrl } from "../config.js";
 import { AGENTS } from "./registry.js";
 import type { AgentAdapter } from "./types.js";
@@ -10,12 +12,18 @@ export type RebakeNote = {
   note: string;
 };
 
+/** An error's text for a note: it can quote a file or a gateway response, so it is one safe line with no key in it. */
+function reason(error: unknown): string {
+  return redactSecrets(safeLine((error as Error | null)?.message ?? String(error)));
+}
+
 function probeFailedNote(agent: string, error: unknown): RebakeNote {
-  return {
-    agent,
-    state: "failed",
-    note: `Could not probe its config: ${(error as Error).message ?? String(error)}`,
-  };
+  return { agent, state: "failed", note: `Could not probe its config: ${reason(error)}` };
+}
+
+/** Print each note dim on stderr, `[agent]`-prefixed. */
+export function printRebakeNotes(notes: readonly RebakeNote[]): void {
+  printNotes(notes.map((note) => `[${note.agent}] ${note.note}`));
 }
 
 /**
@@ -75,7 +83,7 @@ export async function rebakeAgentKeys(
       try {
         await adapter.refreshKey({ apiKey, previousKey });
       } catch (error) {
-        note.note += ` Refresh also failed: ${(error as Error).message ?? String(error)}`;
+        note.note += ` Refresh also failed: ${reason(error)}`;
       }
       notes.push(note);
       continue;
@@ -88,7 +96,7 @@ export async function rebakeAgentKeys(
       notes.push({
         agent: adapter.id,
         state: "failed",
-        note: `Could not refresh its key: ${(error as Error).message ?? String(error)}`,
+        note: `Could not refresh its key: ${reason(error)}`,
       });
     }
   }
