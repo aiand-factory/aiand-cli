@@ -30,6 +30,7 @@ import {
   saveCredential,
   updateProfile,
 } from "../config.js";
+import { ownerRestrictionFailed } from "../fsutil.js";
 import { nowSeconds } from "../time.js";
 import { type BrowserFlowResult, signInViaLocalhostCallback } from "./browser.js";
 import { CREDENTIAL_SOURCE, storageLabel } from "./identity.js";
@@ -401,6 +402,6 @@ export async function pasteLogin(opts: PasteLoginOptions = {}): Promise<void> {
     ["email", user.email || style.dim("unknown")],
     ["profile", profile.name],
     ["source", "pasted key"],
-    ["storage", storageLabel(storage)],
+    ["storage", storageLabel(storage, ownerRestrictionFailed() ? { owner_only: false } : null)],
   ]);
 }
