@@ -69,6 +69,13 @@ breaking changes while the command surface settles.
   sign-out and says the keys were not revoked. The config directory must sit strictly
   inside HOME, be named `aiand`, and on Windows have no link or junction
   between it and HOME.
+- Jouzu, Shisa AI's terminal coding harness built on Pi, is supported:
+  `aiand jouzu` (or `aiand jz`), `aiand jouzu on|off|status`,
+  `aiand restore jouzu --force`, and key rotation. `on` writes Pi's
+  provider, credential and defaults into Jouzu's own config dir
+  (`$JOUZU_HOME/agent`, or Jouzu's per-platform default), never into Pi's.
+  `aiand jouzu` opens Jouzu on the ai& model it wired, because Jouzu's
+  last-used model would otherwise decide. There is no `run-agent jouzu`.
 
 ### Changed
 

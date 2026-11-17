@@ -15,13 +15,16 @@ Every agent takes the same commands:
 | `aiand run-agent <agent>` | Use ai& for one session and write nothing to the agent's config |
 | `aiand restore <agent> --force` | Put the agent's config back byte for byte as it was before aiand first touched it |
 
-Two agents do not fit the table. The GitHub Copilot app is a desktop app with
+Three agents do not fit the table. The GitHub Copilot app is a desktop app with
 no session launch, so `aiand run-agent copilot-app` does not apply: it stops
 with "GitHub Copilot app does not support session launches", and
-`aiand copilot-app on` is the only way to wire it. And `aiand codex on` does not
+`aiand copilot-app on` is the only way to wire it. Jouzu has no session launch
+either, because the setting that would point it at a throwaway config also moves
+its sessions: `aiand run-agent jouzu` stops the same way, and `aiand jouzu` or
+`aiand jouzu on` wires it. And `aiand codex on` does not
 make plain `codex` use ai&: it writes a separate profile, so start Codex with
-`codex --profile aiand` (or `aiand codex`). See [Codex](#codex) and
-[GitHub Copilot app](#github-copilot-app).
+`codex --profile aiand` (or `aiand codex`). See [Codex](#codex),
+[GitHub Copilot app](#github-copilot-app) and [Jouzu](#jouzu).
 
 `aiand code` opens the default agent, OpenCode. `aiand init` detects installed
 agents and wires them in one go (`--all` for every detected agent, `--off` to
@@ -36,8 +39,8 @@ turn them off).
   install hints are printed with no offer. Without a terminal to ask on, aiand
   never installs anything: it prints the install command and exits with `127`.
 - If the agent is not wired yet, aiand runs `on`, so the plain `opencode`,
-  `codex --profile aiand`, `pi`, `omp`, `copilot` and `hermes` use ai&
-  afterwards too. That is the difference from `aiand run-agent <agent>`,
+  `codex --profile aiand`, `pi`, `omp`, `copilot`, `hermes` and `jouzu` use
+  ai& afterwards too. That is the difference from `aiand run-agent <agent>`,
   which changes nothing. `aiand claude` is the exception: it runs one session,
   the same as `aiand run-agent claude`, and wires nothing.
 - Everything after the agent name goes to the agent as typed, such as
@@ -68,8 +71,9 @@ The agent CLIs are the vendors' own. Their install commands and docs:
 [Codex](https://developers.openai.com/codex/cli), [Pi](https://pi.dev),
 [Oh My Pi](https://omp.sh),
 [GitHub Copilot CLI](https://docs.github.com/en/copilot/get-started/cli-quickstart),
-the [GitHub Copilot app](https://github.com/features/ai/github-app) and
-[Hermes Agent](https://hermes-agent.nousresearch.com/docs/) (Nous Research).
+the [GitHub Copilot app](https://github.com/features/ai/github-app),
+[Hermes Agent](https://hermes-agent.nousresearch.com/docs/) (Nous Research) and
+[Jouzu](https://github.com/shisa-ai/jouzu) (Shisa AI).
 
 ## OpenCode
 
@@ -304,3 +308,35 @@ choose (a session launch always names a model, so `--model native` is the usual
 catalog error). `--provider`, `--model`, and `-m` in the arguments after `--`
 are stripped so nothing can override the injected routing, and the overlay is
 removed after the session ends: success, failure, or Ctrl-C.
+
+## Jouzu
+
+```bash
+aiand jouzu              # open Jouzu on ai&, wiring it first if needed (also: aiand jz)
+aiand jouzu on           # route Jouzu through ai&
+aiand jouzu status
+aiand jouzu off
+```
+
+Jouzu is Shisa AI's terminal coding harness, built on Pi. It keeps Pi's files
+in its own config dir, so `on` writes the same `aiand` provider, credential
+(readable only by you) and `defaultProvider`/`defaultModel` as `aiand pi on`,
+but into Jouzu's `agent` dir: `~/Library/Application Support/Jouzu/agent` on
+macOS, `$XDG_CONFIG_HOME/jouzu/agent` (default `~/.config/jouzu/agent`) on
+Linux, `%APPDATA%\Jouzu\agent` on Windows, or `$JOUZU_HOME/agent` when
+`JOUZU_HOME` is set. Pi's own `~/.pi` is not touched, and your Shisa sign-in and
+other providers stay as they are. `off` removes only what aiand wrote, and
+`aiand restore jouzu --force` puts back the exact files from before aiand first
+touched them.
+
+Jouzu starts on its project default or last-used model before `defaultModel`,
+so `aiand jouzu` adds `--provider aiand --model <id>` for that run, unless your
+arguments already pick a model, a session or a Jouzu command; `/model` switches
+inside the session as usual. `--model native` leaves Jouzu's own choice. The
+signed Windows launcher keeps its config elsewhere: set `JOUZU_HOME` to its data
+dir before `on`. There is no `run-agent jouzu`, because `JOUZU_HOME` also moves
+Jouzu's sessions and state, so a one-session overlay would hide your history.
+
+Jouzu is third-party software that ai& does not control. ai&'s data residency
+and retention commitments cover only the data our API receives, not what Jouzu
+itself stores, sends or does on your machine.

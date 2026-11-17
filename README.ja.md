@@ -57,6 +57,7 @@ ai& CLI は次のコーディングエージェントで使えます。
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/get-started/cli-quickstart) | `aiand copilot` | `~/.copilot/providers.json` にプロバイダーを追加し、`settings.json` にモデルを設定 |
 | [GitHub Copilot アプリ](https://github.com/features/ai/github-app) | `aiand copilot-app` | `~/.copilot/data.db` にプロバイダーの行を書き込み。aiand は接続の設定だけを行い、アプリは自分で開きます |
 | [Hermes Agent](https://hermes-agent.nousresearch.com/docs/) | `aiand hermes` | `~/.hermes/plugins/` にプロバイダープラグインを追加し、`config.yaml` と `.env` を変更 |
+| [Jouzu](https://github.com/shisa-ai/jouzu) | `aiand jouzu` または `aiand jz` | Jouzu 自身の設定ディレクトリにある Pi の 3 つのファイル: `agent/models.json` にプロバイダー、`auth.json` にキー、`settings.json` に既定値を追加 |
 
 `aiand <agent>` は、エージェントを ai& で開きます。必要ならサインインと接続の設定を先に行います。ただし `aiand claude` は例外で、1 回のセッションだけを起動し、接続の設定はしません([下の例](#例-claude-code-で-ai-を使う)を参照)。`aiand <agent> on` は、開かずに接続だけを設定します。`aiand <agent> off` は、aiand が追加した内容を削除します。`aiand <agent> status` は、エージェントが実際に使っている接続先を表示します。
 

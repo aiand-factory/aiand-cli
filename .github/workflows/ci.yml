@@ -38,6 +38,10 @@ jobs:
       # --ignore-scripts is a no-op here — it matches the pi pin's
       # discipline and keeps a future postinstall from running CI-side.
       - run: npm install -g --ignore-scripts @github/copilot@1.0.89
+      # Pinned Jouzu for the jouzu-smoke tripwire below. The package has no
+      # install scripts (npm view jouzu@0.2.5 scripts: build/test/check
+      # only); --ignore-scripts keeps a dependency's from running CI-side.
+      - run: npm install -g --ignore-scripts jouzu@0.2.5
       # Pinned omp for the omp-smoke tripwire below: the v18.4.4 release
       # asset, checked against its published sha256 before it reaches PATH.
       - run: |
@@ -56,6 +60,10 @@ jobs:
       # --print round-trip against the loopback double (no real gateway,
       # no key): the schema-drift tripwire for models.json.
       - run: node scripts/pi-smoke.mjs
+      # Real pinned Jouzu (built on Pi, its own agent dir) accepting the
+      # config `aiand jouzu on` writes under JOUZU_HOME and a headless
+      # --print round-trip with the args `aiand jouzu` adds.
+      - run: node scripts/jouzu-smoke.mjs
       # Real pinned omp accepting the generated models.yml and a headless -p
       # round-trip: the schema-drift tripwire for omp's provider block.
       - run: node scripts/omp-smoke.mjs

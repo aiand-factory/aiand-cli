@@ -15,7 +15,7 @@
 | `aiand run-agent <agent>` | 1 回のセッションだけ ai& を使い、エージェントの設定には何も書き込まない |
 | `aiand restore <agent> --force` | エージェントの設定を、aiand が最初に変更する前の状態にバイト単位でそのまま戻す |
 
-この表に当てはまらないエージェントが 2 つあります。GitHub Copilot アプリはデスクトップアプリでセッション起動の機能がないため、`aiand run-agent copilot-app` は使えません(「GitHub Copilot app does not support session launches」というエラーで止まります)。接続するには `aiand copilot-app on` を使います。また、`aiand codex on` を実行しても、通常の `codex` が ai& を使うようにはなりません。別のプロファイルを書き込むだけなので、Codex は `codex --profile aiand`(または `aiand codex`)で起動してください。詳しくは [Codex](#codex) と [GitHub Copilot アプリ](#github-copilot-アプリ) を参照してください。
+この表に当てはまらないエージェントが 3 つあります。GitHub Copilot アプリはデスクトップアプリでセッション起動の機能がないため、`aiand run-agent copilot-app` は使えません(「GitHub Copilot app does not support session launches」というエラーで止まります)。接続するには `aiand copilot-app on` を使います。Jouzu にもセッション起動の機能はありません。一時的な設定を指すための設定がセッションの保存場所も移動してしまうためです。`aiand run-agent jouzu` も同じように止まるので、`aiand jouzu` または `aiand jouzu on` で接続してください。また、`aiand codex on` を実行しても、通常の `codex` が ai& を使うようにはなりません。別のプロファイルを書き込むだけなので、Codex は `codex --profile aiand`(または `aiand codex`)で起動してください。詳しくは [Codex](#codex)、[GitHub Copilot アプリ](#github-copilot-アプリ)、[Jouzu](#jouzu) を参照してください。
 
 `aiand code` は、既定のエージェントである OpenCode を開きます。`aiand init` は、インストール済みのエージェントを検出して、まとめて接続を設定します(`--all` で検出したすべてのエージェント、`--off` で解除)。
 
@@ -23,13 +23,13 @@
 
 - サインインしていない場合、aiand がサインインするか確認します(ターミナルでのみ。先に確認します)。
 - エージェントがインストールされていない場合、インストールコマンドが npm によるものなら、aiand が `aiand <agent> --help` に表示されるインストールコマンドを実行するか確認します。それ以外のインストール方法は、確認せずに表示するだけです。確認できるターミナルがない場合、aiand は何もインストールしません。インストールコマンドを表示して、終了コード `127` で終了します。
-- エージェントの接続が未設定の場合、aiand は `on` を実行します。そのため、以降は通常の `opencode`、`codex --profile aiand`、`pi`、`omp`、`copilot`、`hermes` でも ai& が使われます。何も変更しない `aiand run-agent <agent>` との違いはここです。ただし `aiand claude` は例外で、`aiand run-agent claude` と同じく 1 回のセッションだけを起動し、接続の設定はしません。
+- エージェントの接続が未設定の場合、aiand は `on` を実行します。そのため、以降は通常の `opencode`、`codex --profile aiand`、`pi`、`omp`、`copilot`、`hermes`、`jouzu` でも ai& が使われます。何も変更しない `aiand run-agent <agent>` との違いはここです。ただし `aiand claude` は例外で、`aiand run-agent claude` と同じく 1 回のセッションだけを起動し、接続の設定はしません。
 - エージェント名のあとの引数は、入力したとおりにエージェントへ渡されます(たとえば `aiand claude -p "explain this repo"`)。aiand 自身のフラグはエージェント名の前に置きます(`aiand --profile work codex`)。aiand が動詞(サブコマンド)と解釈してしまう引数の前には `--` を置きます(`aiand opencode -- status`)。
 - `on` には、モデルを選ぶ `--model <id>` と、エージェント自身の既定のモデルをそのままにする `--model native` を指定できます。ただし `--model native` は、Codex と Claude Code 以外のエージェントで使えます。Codex は `native` を受け付けません。プロファイルが、ゲートウェイが提供できない `config.toml` のモデルを引き継いでしまうためです。`aiand claude on --model native` は、Claude Code の接続先をゲートウェイに向けますが、Claude Code 自身のモデルの選択はそのまま残るため、ai& が提供していないモデルへのリクエストが失敗することがあります(aiand は警告を表示します)。Claude Code には `--model <id>` を指定してください。
 - エージェントは、絶対パスのエントリだけを含む `PATH` で起動します。空、`.`、相対パス(`./node_modules/.bin` など)のエントリは除外されます。これらは今いるフォルダーを指すため、クローンしたリポジトリに置かれたプログラムがエージェントから実行される恐れがあるためです。エージェントが使うツールは絶対パスで指定してください。
 - API キーがローテーションされると、aiand が接続済みのエージェントを更新します。そのため、もう一度 `on` を実行しなくても使い続けられます。更新するのは、キーと同じ API エンドポイントに接続されているエージェントのうち、置き換えられたキーをまだ保持しているものだけです。別のエンドポイントに接続されているエージェント(接続先を aiand が判断できないものを含む)は元のキーのままで、aiand はそのエージェントを移すための `aiand --profile <name> <agent> on` コマンドを表示します。
 
-エージェントの CLI は、各ベンダーのものです。インストールコマンドとドキュメントは次のとおりです。[OpenCode](https://opencode.ai)、[Claude Code](https://code.claude.com/docs)、[Codex](https://developers.openai.com/codex/cli)、[Pi](https://pi.dev)、[Oh My Pi](https://omp.sh)、[GitHub Copilot CLI](https://docs.github.com/en/copilot/get-started/cli-quickstart)、[GitHub Copilot アプリ](https://github.com/features/ai/github-app)、[Hermes Agent](https://hermes-agent.nousresearch.com/docs/)(Nous Research)。
+エージェントの CLI は、各ベンダーのものです。インストールコマンドとドキュメントは次のとおりです。[OpenCode](https://opencode.ai)、[Claude Code](https://code.claude.com/docs)、[Codex](https://developers.openai.com/codex/cli)、[Pi](https://pi.dev)、[Oh My Pi](https://omp.sh)、[GitHub Copilot CLI](https://docs.github.com/en/copilot/get-started/cli-quickstart)、[GitHub Copilot アプリ](https://github.com/features/ai/github-app)、[Hermes Agent](https://hermes-agent.nousresearch.com/docs/)(Nous Research)、[Jouzu](https://github.com/shisa-ai/jouzu)(Shisa AI)。
 
 ## OpenCode
 
@@ -158,3 +158,18 @@ aiand run-agent hermes   # Hermes を 1 回のセッションだけ ai& で起�
 `off` は、aiand が書き込んだ内容だけを削除します。設定が望ましくない状態になった場合は、`aiand restore hermes --force` で、aiand が最初に変更する前のファイルにそのまま戻せます。
 
 `run-agent` は、事前に `on` を実行しなくても、1 回のセッションを一時的な `HERMES_HOME` オーバーレイ経由にします。セッション、スキル、メモリ、ログ、ご自身のプラグインは、シンボリックリンクで元の場所につながるため、ネイティブのまま再開できます。一方、認証情報はオーバーレイの中にしか存在せず、`config.yaml` を含む実際の `~/.hermes` には書き込まれません。オーバーレイには同じ専用の `aiand` モデルプロバイダーが入り、その `config.yaml` はライブのカタログからモデルを固定します。選ぶには `--model <id>` を使ってください(セッションの起動では必ずモデルが指定されるため、`--model native` は通常のカタログのエラーになります)。`--` のあとの引数にある `--provider`、`--model`、`-m` は取り除かれるので、注入された接続先を上書きすることはできません。オーバーレイは、セッションの終了後(成功、失敗、Ctrl-C のいずれでも)に削除されます。
+
+## Jouzu
+
+```bash
+aiand jouzu              # Jouzu を ai& で開く。必要なら先に接続を設定する(aiand jz でも可)
+aiand jouzu on           # Jouzu を ai& 経由にする
+aiand jouzu status
+aiand jouzu off
+```
+
+Jouzu は、Shisa AI が Pi をもとに作ったターミナル向けのコーディングハーネスです。Pi のファイルを Jouzu 自身の設定ディレクトリに置くため、`on` は `aiand pi on` と同じ `aiand` プロバイダー、認証情報(ご自身だけが読めます)、`defaultProvider`/`defaultModel` を、Jouzu の `agent` ディレクトリに書き込みます。場所は、macOS では `~/Library/Application Support/Jouzu/agent`、Linux では `$XDG_CONFIG_HOME/jouzu/agent`(既定は `~/.config/jouzu/agent`)、Windows では `%APPDATA%\Jouzu\agent`、`JOUZU_HOME` を設定している場合は `$JOUZU_HOME/agent` です。Pi 自身の `~/.pi` には触れません。Shisa のサインインやほかのプロバイダーもそのまま残ります。`off` は aiand が書き込んだ内容だけを削除し、`aiand restore jouzu --force` で、aiand が最初に変更する前のファイルにそのまま戻せます。
+
+Jouzu は、`defaultModel` よりも先に、プロジェクトの既定のモデルまたは最後に使ったモデルで起動します。そのため `aiand jouzu` は、その起動に限り `--provider aiand --model <id>` を追加します。ただし、引数ですでにモデル、セッション、Jouzu のコマンドを指定している場合は追加しません。セッションの中では、通常どおり `/model` で切り替えられます。`--model native` を指定すると、Jouzu 自身の選択がそのまま使われます。署名済みの Windows ランチャーは設定を別の場所に置くため、`on` の前に `JOUZU_HOME` をそのデータディレクトリに設定してください。`run-agent jouzu` はありません。`JOUZU_HOME` は Jouzu のセッションと状態も移動するため、1 回のセッション用のオーバーレイでは履歴が見えなくなってしまうためです。
+
+Jouzu は、ai& が管理していないサードパーティのソフトウェアです。ai& のデータの保管場所と保持期間に関する約束が対象とするのは、ai& の API が受け取るデータだけです。Jouzu 自身がお使いのマシンで保存、送信、実行する内容は対象外です。

@@ -12,7 +12,7 @@ agent's native wire format, so the CLI never runs a local proxy, translator,
 or daemon to serve one. _Avoid:_ relay, proxy.
 
 **Wire format** - the request/response dialect an agent speaks: OpenAI-compatible chat
-(OpenCode, Pi, Oh My Pi, the Copilot CLI, the Copilot app, and Hermes through
+(OpenCode, Pi, Jouzu, Oh My Pi, the Copilot CLI, the Copilot app, and Hermes through
 its dedicated `aiand` provider) or Anthropic Messages
 (Claude Code) or OpenAI Responses (Codex).
 The CLI points the agent at the gateway in its own dialect; it never translates between dialects.
@@ -27,7 +27,7 @@ primary product surface; `init` and the launcher are conveniences layered
 over the same adapters.
 
 **Agent** - a local coding-agent CLI identified by its short id, one of the agents
-shipped, currently opencode, claude, codex, pi, omp, copilot, copilot-app and hermes.
+shipped, currently opencode, claude, codex, pi, omp, copilot, copilot-app, hermes and jouzu.
 One adapter per agent. _Avoid:_ harness, integration, connector.
 
 **Adapter** - the module that knows one agent: how to detect its binary,
@@ -46,7 +46,9 @@ spawning anything. Only what the binary still needs to
 start on ai& is added, never written: Codex's `--profile aiand` unless the
 args pick a profile or run a management command that refuses one, and for
 OpenCode an ai& model it was wired with, inline, when a model of the user's
-own still decides. `aiand code` opens the default agent, OpenCode. Claude Code
+own still decides, and for Jouzu `--provider aiand --model <id>`
+unless the args already pick a model, a session or a subcommand (Jouzu's
+last-used model outranks its settings). `aiand code` opens the default agent, OpenCode. Claude Code
 opens through the Launcher instead, never `on`: Claude Code re-applies
 `settings.json` to sessions already running, so wiring it would move every
 open session to ai&. Other agents move over the same way once it has been
@@ -102,7 +104,8 @@ and `dist\index.js` run directly, never the `.cmd` shim): Codex rejects unknown 
 `--strict-config`, and a hand-written profile prints its key another way. For Pi it is
 `managedBy: "aiand"` on the `auth.json` credential: models.json is the one
 Pi file with a schema behind it (TypeBox), while auth.json passes unknown
-credential keys through. For omp it is `managedBy: "aiand"` on the models.yml
+credential keys through. Jouzu runs Pi on its own agent dir, so its marker is
+Pi's, in that dir's auth.json. For omp it is `managedBy: "aiand"` on the models.yml
 provider block: omp has no auth.json, and its provider schema tolerates
 unknown keys. For the Copilot CLI it is the provider row itself, the one
 named `aiand` in providers.json: the CLI silently ignores unknown provider
