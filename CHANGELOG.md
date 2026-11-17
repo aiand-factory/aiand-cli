@@ -7,6 +7,19 @@ breaking changes while the command surface settles.
 
 ## [Unreleased]
 
+### Added
+
+- `aiand openwebui on`, `off` and `status` add ai& as a model provider to an
+  Open WebUI instance you run, through its admin API. Set `OPENWEBUI_URL`
+  (default `http://localhost:3000`) and `OPENWEBUI_API_KEY` (an admin's Open
+  WebUI API key, never stored). `on` adds one OpenAI connection and leaves the
+  others as they are, `off` removes only that one, and logout, key rotation
+  and `aiand restore openwebui --force` reach the same instance. Bare
+  `aiand openwebui` wires the instance if needed and opens it in your
+  browser. Open WebUI is third-party software that ai& does not control.
+- `aiand status` shows an agent whose state cannot be checked as `unknown`
+  with the reason, instead of failing.
+
 ### Changed
 
 - Running `aiand claude` on its own (no `on`, `off` or `status`) starts one

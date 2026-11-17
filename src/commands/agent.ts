@@ -4,6 +4,7 @@ import { agentOff, agentOn, agentStatus } from "../agents/setup.js";
 import type { AgentAdapter, Verb } from "../agents/types.js";
 import { requireSessionKey } from "../auth/session.js";
 import { bool, type Parsed, parse, str } from "../cli/args.js";
+import { openBrowser } from "../cli/browser.js";
 import { CliError } from "../cli/errors.js";
 import { err, fields, json, out, style } from "../cli/output.js";
 import { agentHome, resolveProfile } from "../config.js";
@@ -31,9 +32,11 @@ export function agentHelp(adapter: AgentAdapter): string {
     : `  aiand [--profile <name>] ${adapter.id} [args…]`;
   const openPara = adapter.openLaunchesSession
     ? `  When you run \`aiand ${adapter.id}\` on its own, it starts one ${adapter.label} session on ai&. Your other ${adapter.label} windows stay as they are. If ${adapter.label} is not installed, aiand shows the install command (and runs npm installs if you say yes). Your args go straight to ${adapter.bin}. Put aiand's own flags before "${adapter.id}", and put \`--\` before an arg that is also an aiand command (on, off, status). To send every ${adapter.bin} through ai&, use \`aiand ${adapter.id} on\`.`
-    : adapter.configOnly
-      ? `  When you run \`aiand ${adapter.id}\` on its own, it sets up ${adapter.label} to use ai&. If ${adapter.label} is not installed, aiand shows the install command (and runs npm installs if you say yes). Then open the GitHub Copilot app yourself and pick the ai& model in its model menu.`
-      : `  When you run \`aiand ${adapter.id}\` on its own, it opens ${adapter.label} on ai&. If ${adapter.label} is not installed, aiand shows the install command (and runs npm installs if you say yes). If it is not set up for ai& yet, aiand runs \`aiand ${adapter.id} on\` first. Your args go straight to ${adapter.bin}. Put aiand's own flags before "${adapter.id}", and put \`--\` before an arg that is also an aiand command (on, off, status).`;
+    : adapter.configOnly && adapter.openConfigured
+      ? `  When you run \`aiand ${adapter.id}\` on its own, it sets up ${adapter.label} to use ai& if it is not set up yet, then opens ${adapter.label} in your browser (or prints its address when AIAND_NO_BROWSER=1). If ${adapter.label} is not found, aiand shows the install command.`
+      : adapter.configOnly
+        ? `  When you run \`aiand ${adapter.id}\` on its own, it sets up ${adapter.label} to use ai&. If ${adapter.label} is not installed, aiand shows the install command (and runs npm installs if you say yes). Then open the GitHub Copilot app yourself and pick the ai& model in its model menu.`
+        : `  When you run \`aiand ${adapter.id}\` on its own, it opens ${adapter.label} on ai&. If ${adapter.label} is not installed, aiand shows the install command (and runs npm installs if you say yes). If it is not set up for ai& yet, aiand runs \`aiand ${adapter.id} on\` first. Your args go straight to ${adapter.bin}. Put aiand's own flags before "${adapter.id}", and put \`--\` before an arg that is also an aiand command (on, off, status).`;
   return `${style.bold(`aiand ${adapter.id}`)} -- ${adapter.label} on ai&
 
 Usage
@@ -41,7 +44,7 @@ ${openUsage}
   aiand ${adapter.id} on|off|status [options]
 
 ${openPara}
-
+${adapter.helpNotes ? `\n${adapter.helpNotes}\n` : ""}
 Verbs
   on       wire ${adapter.label} to ai&
   off      remove aiand routing (keeps your edits)
@@ -114,6 +117,21 @@ async function runOpen(
     for (const warning of result.warnings) err(style.dim(warning));
   } else {
     await requireSessionKey();
+  }
+  if (adapter.configOnly && adapter.openConfigured) {
+    if (passthrough.length > 0) {
+      throw new CliError(`aiand ${adapter.id} takes no arguments for ${adapter.label}.`, {
+        hint: `Run \`aiand ${adapter.id}\` on its own to open ${adapter.label}.`,
+      });
+    }
+    const target = await adapter.openConfigured();
+    if (await openBrowser(target.url)) {
+      out(`Opened ${adapter.label} at ${target.url}`);
+    } else {
+      out(`Open ${adapter.label} at ${target.url}`);
+    }
+    if (target.message) err(style.dim(target.message));
+    return;
   }
   if (adapter.configOnly) {
     if (passthrough.length > 0) {

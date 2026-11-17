@@ -139,8 +139,11 @@ export async function agentOn(
   // never restore this one, so it is replaced.
   let snapshottedThisCall = false;
   if (!probe.active && !(await snapshotCovers(adapter.id, managed))) {
+    // A remote config (no managed files) is captured by the adapter itself,
+    // before discarding anything: a capture that fails leaves no half-state.
+    const remote = adapter.snapshotRemote ? await adapter.snapshotRemote() : undefined;
     if (await hasSnapshot(adapter.id)) await discardSnapshot(adapter.id);
-    await snapshotFiles(adapter.id, managed);
+    await snapshotFiles(adapter.id, managed, remote);
     snapshottedThisCall = true;
   }
 

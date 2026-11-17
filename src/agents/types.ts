@@ -62,6 +62,12 @@ type SessionLaunch = {
   cleanup?: () => Promise<void>;
 };
 
+/** What a config-only adapter with a browser front end hands `open`. */
+export type OpenTarget = {
+  url: string; // opened in the browser (printed instead under AIAND_NO_BROWSER)
+  message?: string; // one line on what to do there
+};
+
 type OpenExtras = {
   env?: Record<string, string>;
   args?: string[];
@@ -107,7 +113,20 @@ export type AgentAdapter = {
   // bakes a key but cannot swap it leaves this out, and rebake tells the user
   // to re-run `aiand <id> on`; one that bakes no key at all (Codex asks
   // `aiand key export`) defines it as `false` so rebake stays silent.
+  snapshotRemote?(): Promise<object>;
+  // ^ Adapters whose managed config is remote (no managedFiles) capture it
+  // here before the first write. agentOn stores it in the snapshot manifest
+  // under the same "first capture stays authoritative" rule as files. It
+  // must hold no key literal: the snapshot is written to disk.
+  restore?(snapshot: object): Promise<string[]>;
+  // ^ `restore --force` for a remote config: put back what snapshotRemote
+  // captured. Resolves warnings to print.
   launcherOnly?: boolean; // adapters with session-only routing: on/off unsupported
   configOnly?: boolean; // adapters whose agent is a GUI app: open wires but never spawns
+  openConfigured?(): Promise<OpenTarget>;
+  // ^ Config-only adapters with a browser front end: what bare `aiand <id>`
+  // opens once the config is wired. Without it, open prints the Copilot
+  // app's pick-a-model advice.
+  helpNotes?: string; // an extra paragraph for `aiand <id> --help`
   openLaunchesSession?: boolean; // bare `aiand <id>` runs one session (run-agent), never `on`
 };

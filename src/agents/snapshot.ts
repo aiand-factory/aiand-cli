@@ -19,6 +19,8 @@ type SnapshotManifest = {
   createdAt: string;
   files: SnapshotEntry[];
   added?: AddedState;
+  /** An adapter's remote config (snapshotRemote), for adapters with no managed files. */
+  remote?: object;
 };
 
 /**
@@ -75,8 +77,15 @@ async function readManifest(agentId: string): Promise<SnapshotManifest | null> {
  * manifest `restoreSnapshot` replays. Files that do not exist are recorded
  * with `existed: false` so restore deletes them instead of copying.
  * Returns the snapshot directory; each call replaces the previous manifest.
+ * `remote` is an adapter's capture of a config that lives off this machine
+ * (snapshotRemote); it is stored in the manifest as-is, so it must hold no
+ * key literal.
  */
-export async function snapshotFiles(agentId: string, files: string[]): Promise<string> {
+export async function snapshotFiles(
+  agentId: string,
+  files: string[],
+  remote?: object,
+): Promise<string> {
   const dir = snapshotDir(agentId);
   const snapDir = join(dir, snapshotStamp(new Date()));
   await mkdir(dir, { recursive: true, mode: PRIVATE_DIR_MODE });
@@ -106,7 +115,11 @@ export async function snapshotFiles(agentId: string, files: string[]): Promise<s
     }
   }
 
-  const manifest: SnapshotManifest = { createdAt: new Date().toISOString(), files: entries };
+  const manifest: SnapshotManifest = {
+    createdAt: new Date().toISOString(),
+    files: entries,
+    ...(remote === undefined ? {} : { remote }),
+  };
   await writeFileAtomic(join(dir, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, {
     mode: PRIVATE_FILE_MODE,
   });
@@ -166,6 +179,16 @@ export async function restoreSnapshot(agentId: string, allowedFiles: string[]): 
 
   await rm(snapshotDir(agentId), { recursive: true, force: true });
   return true;
+}
+
+/**
+ * The remote capture (snapshotRemote) in this agent's snapshot, or null when
+ * there is no snapshot or it holds none. A non-object capture is corrupt.
+ */
+export async function getRemoteSnapshot(agentId: string): Promise<object | null> {
+  const manifest = await readManifest(agentId);
+  if (!manifest || manifest.remote === undefined) return null;
+  return asRecord<object>(manifest.remote, MANIFEST_FILE, agentId);
 }
 
 export async function hasSnapshot(agentId: string): Promise<boolean> {
