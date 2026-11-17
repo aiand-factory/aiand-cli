@@ -27,7 +27,7 @@
 - エージェント名のあとの引数は、入力したとおりにエージェントへ渡されます(たとえば `aiand claude -p "explain this repo"`)。aiand 自身のフラグはエージェント名の前に置きます(`aiand --profile work codex`)。aiand が動詞(サブコマンド)と解釈してしまう引数の前には `--` を置きます(`aiand opencode -- status`)。
 - `on` には、モデルを選ぶ `--model <id>` と、エージェント自身の既定のモデルをそのままにする `--model native` を指定できます。ただし `--model native` は、Codex と Claude Code 以外のエージェントで使えます。Codex は `native` を受け付けません。プロファイルが、ゲートウェイが提供できない `config.toml` のモデルを引き継いでしまうためです。`aiand claude on --model native` は、Claude Code の接続先をゲートウェイに向けますが、Claude Code 自身のモデルの選択はそのまま残るため、ai& が提供していないモデルへのリクエストが失敗することがあります(aiand は警告を表示します)。Claude Code には `--model <id>` を指定してください。
 - エージェントは、絶対パスのエントリだけを含む `PATH` で起動します。空、`.`、相対パス(`./node_modules/.bin` など)のエントリは除外されます。これらは今いるフォルダーを指すため、クローンしたリポジトリに置かれたプログラムがエージェントから実行される恐れがあるためです。エージェントが使うツールは絶対パスで指定してください。
-- API キーがローテーションされると、aiand が接続済みのエージェントを更新します。そのため、もう一度 `on` を実行しなくても使い続けられます。
+- API キーがローテーションされると、aiand が接続済みのエージェントを更新します。そのため、もう一度 `on` を実行しなくても使い続けられます。更新するのは、キーと同じ API エンドポイントに接続されているエージェントのうち、置き換えられたキーをまだ保持しているものだけです。別のエンドポイントに接続されているエージェント(接続先を aiand が判断できないものを含む)は元のキーのままで、aiand はそのエージェントを移すための `aiand --profile <name> <agent> on` コマンドを表示します。
 
 エージェントの CLI は、各ベンダーのものです。インストールコマンドとドキュメントは次のとおりです。[OpenCode](https://opencode.ai)、[Claude Code](https://code.claude.com/docs)、[Codex](https://developers.openai.com/codex/cli)、[Pi](https://pi.dev)、[Oh My Pi](https://omp.sh)、[GitHub Copilot CLI](https://docs.github.com/en/copilot/get-started/cli-quickstart)、[GitHub Copilot アプリ](https://github.com/features/ai/github-app)、[Hermes Agent](https://hermes-agent.nousresearch.com/docs/)(Nous Research)。
 

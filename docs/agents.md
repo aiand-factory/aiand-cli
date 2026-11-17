@@ -56,7 +56,11 @@ turn them off).
   resolve to the folder you are standing in, where a cloned repository could
   plant the program the agent runs. Give the agent's tools as absolute paths.
 - When your key rotates, aiand updates the agents it wired, so they keep
-  working without another `on`.
+  working without another `on`. It does so only for an agent wired for the
+  same API endpoint as the key, and only where the agent still holds the key
+  that was replaced. An agent wired for another endpoint (or one aiand cannot
+  tell the endpoint of) keeps its key, and aiand prints the
+  `aiand --profile <name> <agent> on` command that moves it.
 
 The agent CLIs are the vendors' own. Their install commands and docs:
 [OpenCode](https://opencode.ai),
