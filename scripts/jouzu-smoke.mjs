@@ -74,19 +74,35 @@ try {
     fail(`jouzu --list-models rejected the config: ${error.stderr ?? error.message}`);
   }
 
-  // 3. Headless round-trip with the args `aiand jouzu` adds.
+  // 3. Headless round-trip through `aiand jouzu`, so the args open adds
+  //    (openExtras) reach the real binary, not a hand-written copy of them.
   try {
-    const printed = execFileSync(
-      "jouzu",
-      ["--provider", "aiand", "--model", "zai-org/glm-5.3", "--print", "Say hi"],
-      { env, encoding: "utf8", timeout: 180_000 },
-    );
+    const printed = execFileSync(process.execPath, [DIST, "jouzu", "--print", "Say hi"], {
+      env,
+      encoding: "utf8",
+      timeout: 180_000,
+    });
     // Jouzu keeps Pi's thinking clamp: medium is not published, so high.
     if (printed.includes("echo:zai-org/glm-5.3:effort=high"))
-      process.stdout.write("PASS jouzu --print sends high on the aiand provider\n");
-    else fail(`jouzu --print round-trip did not send the clamped level:\n${printed}`);
+      process.stdout.write("PASS aiand jouzu --print sends high on the aiand provider\n");
+    else fail(`aiand jouzu --print round-trip did not send the clamped level:\n${printed}`);
   } catch (error) {
-    fail(`jouzu --print round-trip failed: ${error.stderr ?? error.message}`);
+    fail(`aiand jouzu --print round-trip failed: ${error.stderr ?? error.message}`);
+  }
+
+  // 4. A Pi subcommand stays a subcommand: open adds no flags in front of
+  //    it, which would turn it into a chat prompt.
+  try {
+    const listed = execFileSync(process.execPath, [DIST, "jouzu", "list"], {
+      env,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    if (listed.includes("No packages installed") && !listed.includes("echo:"))
+      process.stdout.write("PASS aiand jouzu list runs Pi's list command\n");
+    else fail(`aiand jouzu list did not run Pi's list command:\n${listed}`);
+  } catch (error) {
+    fail(`aiand jouzu list failed: ${error.stderr ?? error.message}`);
   }
 } catch (error) {
   fail(String(error.stderr ?? error.message ?? error));

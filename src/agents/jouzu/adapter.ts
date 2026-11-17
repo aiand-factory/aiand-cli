@@ -1,6 +1,5 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import { agentHome } from "../../config.js";
+import { join, posix, win32 } from "node:path";
 import { detectBinary } from "../detect.js";
 import { readJsoncObject } from "../managed-file.js";
 import { createPiFamily } from "../pi/family.js";
@@ -9,33 +8,49 @@ import type { AgentAdapter, DetectResult } from "../types.js";
 
 const JOUZU_ID = "jouzu";
 const JOUZU_BIN = "jouzu";
-/** Jouzu installs the same entry point under a short name too. */
+/** Jouzu installs the same entry point as `jz`: `aiand jz` is an alias. */
 const JOUZU_SHORT_BIN = "jz";
+
+type JouzuRootInput = {
+  platform: NodeJS.Platform;
+  env: NodeJS.ProcessEnv;
+  home: string; // the OS home Jouzu itself would use (os.homedir())
+  scopedHome?: string; // AIAND_HOME: stands in for the OS home
+};
 
 /**
  * Jouzu's root: $JOUZU_HOME when set, otherwise its per-platform config dir
- * (packages/cli/src/paths.ts resolveJouzuPaths, Jouzu 0.2.x). Under
- * AIAND_HOME the scoped home stands in for the OS home, and APPDATA /
- * XDG_CONFIG_HOME are ignored: they describe the real home, not the one
- * aiand was pointed at.
+ * (packages/cli/src/paths.ts resolveJouzuPaths, Jouzu 0.2.x). Like Jouzu,
+ * a leading `~` in JOUZU_HOME, APPDATA or XDG_CONFIG_HOME means the home
+ * dir and a relative value resolves against cwd. Under AIAND_HOME the
+ * scoped home stands in for the OS home, and APPDATA / XDG_CONFIG_HOME are
+ * ignored: they describe the real home, not the one aiand was pointed at.
+ * @public exported for tests
  */
+export function resolveJouzuRoot({ platform, env, home, scopedHome }: JouzuRootInput): string {
+  const path = platform === "win32" ? win32 : posix;
+  const absolute = (value: string): string => path.resolve(value.replace(/^~(?=$|[/\\])/, home));
+  const override = env.JOUZU_HOME?.trim();
+  if (override) return absolute(override);
+  const base = scopedHome ?? home;
+  const fromEnv = (name: string): string | undefined => {
+    const value = scopedHome === undefined ? env[name]?.trim() : undefined;
+    return value ? absolute(value) : undefined;
+  };
+  if (platform === "darwin") return path.join(base, "Library", "Application Support", "Jouzu");
+  if (platform === "win32") {
+    return path.join(fromEnv("APPDATA") ?? path.join(base, "AppData", "Roaming"), "Jouzu");
+  }
+  return path.join(fromEnv("XDG_CONFIG_HOME") ?? path.join(base, ".config"), "jouzu");
+}
+
 function jouzuConfigDir(): string {
-  const override = process.env.JOUZU_HOME?.trim();
-  if (override) {
-    // Jouzu expands a leading ~ and resolves a relative path against cwd.
-    return resolve(override.replace(/^~(?=$|[/\\])/, homedir()));
-  }
-  const scoped = Boolean(process.env.AIAND_HOME);
-  const home = agentHome();
-  if (process.platform === "darwin") {
-    return join(home, "Library", "Application Support", "Jouzu");
-  }
-  if (process.platform === "win32") {
-    const roaming = (!scoped && process.env.APPDATA?.trim()) || join(home, "AppData", "Roaming");
-    return join(roaming, "Jouzu");
-  }
-  const configHome = (!scoped && process.env.XDG_CONFIG_HOME?.trim()) || join(home, ".config");
-  return join(configHome, "jouzu");
+  return resolveJouzuRoot({
+    platform: process.platform,
+    env: process.env,
+    home: homedir(),
+    scopedHome: process.env.AIAND_HOME || undefined,
+  });
 }
 
 /**
@@ -71,12 +86,18 @@ const DECIDING_FLAGS = new Set([
   "-r",
   "--continue",
   "-c",
+  "--fork",
   "--help",
   "-h",
   "--version",
   "-v",
-  "--",
 ]);
+/**
+ * Words Jouzu or Pi read as a command, and only as the first argument
+ * (Pi 1.5.0: package-manager-cli.js parsePackageCommand and
+ * handleConfigCommand, main.js `mcp`, cli/auth-command.js). Flags in front
+ * of one would turn it into a chat prompt, so `open` adds none.
+ */
 const SUBCOMMANDS = new Set([
   "acp",
   "doctor",
@@ -87,11 +108,22 @@ const SUBCOMMANDS = new Set([
   "self-update",
   "pi",
   "help",
+  "install",
+  "uninstall",
+  "remove",
+  "update",
+  "list",
+  "config",
+  "mcp",
+  "auth",
 ]);
 
 function argsDecide(args: string[]): boolean {
   if (args.length > 0 && SUBCOMMANDS.has(args[0] as string)) return true;
-  return args.some((arg) => {
+  // `--` only ends option parsing; what follows is positional, and the
+  // injected flags go in front of it.
+  const end = args.indexOf("--");
+  return (end === -1 ? args : args.slice(0, end)).some((arg) => {
     const flag = arg.split("=", 1)[0] as string;
     return DECIDING_FLAGS.has(flag) || flag.startsWith("--jouzu-");
   });
@@ -119,8 +151,9 @@ export const jouzuAdapter: AgentAdapter = {
   // "--model native" leaves the model unpinned, as for Pi.
   allowUnpinnedModel: true,
   detect(): DetectResult {
-    const full = detectBinary(JOUZU_BIN);
-    return full.installed ? full : detectBinary(JOUZU_SHORT_BIN);
+    // `jouzu` only: npm installs `jz` beside it, so a `jz` alone belongs to
+    // another tool, and `open` launches `jouzu`.
+    return detectBinary(JOUZU_BIN);
   },
   managedFiles: jouzu.managedFiles,
   probe: jouzu.probe,

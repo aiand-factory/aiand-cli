@@ -88,6 +88,17 @@ function hasOwnershipMarker(auth: Record<string, unknown>): boolean {
   return aiandCredential(auth)?.[PI_MARKER_KEY] === PI_MARKER;
 }
 
+/**
+ * True when a provider block no longer has the scalars `on` wrote: the
+ * user repointed or reshaped it, so it is theirs. The models array is the
+ * live catalog and is not compared.
+ */
+function blockEdited(block: Record<string, unknown>, wroteBaseUrl: string): boolean {
+  return (
+    block.baseUrl !== wroteBaseUrl || block.name !== "ai&" || block.api !== "openai-completions"
+  );
+}
+
 export function createPiFamily(spec: PiFamilySpec): PiFamilyCore {
   const { id, label } = spec;
   /** Recovery hint for a config file that cannot be parsed or edited. */
@@ -232,14 +243,25 @@ export function createPiFamily(spec: PiFamilySpec): PiFamilyCore {
     if (isNative) {
       // Leave the model unpinned: the agent's own default resolution wins.
       // on still wires the provider + credential, so the user can pick a
-      // model in the agent.
+      // model in the agent. After an earlier `on`, native means the same as
+      // on a fresh config: the defaults that `on` set are handed back, or
+      // the earlier ai& model would still decide (and `aiand jouzu` would
+      // still name it).
       warnings.push(`${label}'s own default model is not on ai&; pass --model to pick one.`);
-      wroteDefaultModel = prior?.wroteDefaultModel;
-      if (wroteDefaultModel !== undefined && userDefaultModel !== wroteDefaultModel) {
-        // A hand edit replaced our write: the record's undo target is stale.
-        wroteDefaultModel = undefined;
-        previousDefaultModel = undefined;
+      if (prior?.wroteDefaultModel !== undefined && userDefaultModel === prior.wroteDefaultModel) {
+        settingsText =
+          prior.previousDefaultModel !== undefined
+            ? jsoncSet(settingsText, ["defaultModel"], prior.previousDefaultModel)
+            : jsoncDelete(settingsText, ["defaultModel"]);
       }
+      if (prior !== null && settings.defaultProvider === PI_PROVIDER_ID) {
+        settingsText =
+          previousDefaultProvider !== undefined
+            ? jsoncSet(settingsText, ["defaultProvider"], previousDefaultProvider)
+            : jsoncDelete(settingsText, ["defaultProvider"]);
+      }
+      wroteDefaultModel = undefined;
+      previousDefaultModel = undefined;
     } else if (userDefaultModel && inCatalog(userDefaultModel) && !input.pinModel) {
       // The user's pick is servable: keep it, write only the provider. A
       // kept model that is a prior on's still-live write keeps that record;
@@ -362,17 +384,36 @@ export function createPiFamily(spec: PiFamilySpec): PiFamilyCore {
     if (ours) {
       stripped = true;
 
-      // auth.json: drop our credential; the user's own credentials survive.
-      // A file our on created (the snapshot recorded its absence) and that is
-      // now empty is unlinked, never left behind as a stray.
-      const authText = jsoncDelete(raw.auth, [PI_PROVIDER_ID]);
-      await writeStrippedJsonc(
-        id,
-        paths.auth,
-        raw.auth,
-        authText,
-        added?.previousAuthMode ?? PRIVATE_FILE_MODE,
-      );
+      // Removal order keeps a failed `off` retryable: the routing goes
+      // first and the auth.json credential, which carries the ownership
+      // marker, goes last. A write that fails part-way leaves the marker
+      // in place, so the retry still knows the rest is ours.
+
+      // models.json: drop our provider block; unrelated providers survive,
+      // and an emptied `providers` map (ours alone) is dropped with it.
+      // A marked block the user edited by hand is theirs now: it stays
+      // in place with a note while the auth/settings strips still happen.
+      // The check compares the scalars `on` wrote (baseUrl, name, api) —
+      // the models array is the live catalog, which grows between on and
+      // off and must not read as an edit. A block that is already gone
+      // (an earlier off that stopped part-way) has nothing left to drop.
+      const edited =
+        hasOwnershipMarker(auth) &&
+        added?.wroteBaseUrl !== undefined &&
+        block !== undefined &&
+        blockEdited(block, added.wroteBaseUrl);
+      if (edited) {
+        notes.push("left providers.aiand because you edited it");
+      } else {
+        const modelsText = dropPiProvider(raw.models);
+        await writeStrippedJsonc(
+          id,
+          paths.models,
+          raw.models,
+          modelsText,
+          added?.previousModelsMode ?? DEFAULT_FILE_MODE,
+        );
+      }
 
       // settings.json: hand back the defaultProvider on replaced and the
       // defaultModel on set aside or wrote.
@@ -386,33 +427,17 @@ export function createPiFamily(spec: PiFamilySpec): PiFamilyCore {
         added?.previousSettingsMode ?? DEFAULT_FILE_MODE,
       );
 
-      // models.json: drop our provider block; unrelated providers survive,
-      // and an emptied `providers` map (ours alone) is dropped with it.
-      // A marked block the user edited by hand is theirs now: it stays
-      // in place with a note while the auth/settings strips above still
-      // happen. The check compares the scalars `on` wrote (baseUrl, name,
-      // api) — the models array is the live catalog, which grows between
-      // on and off and must not read as an edit. A record from before
-      // wroteBaseUrl existed is not "edited": it strips as it always did.
-      const edited =
-        hasOwnershipMarker(auth) &&
-        added?.wroteBaseUrl !== undefined &&
-        (block === undefined ||
-          block.baseUrl !== added.wroteBaseUrl ||
-          block.name !== "ai&" ||
-          block.api !== "openai-completions");
-      if (edited) {
-        notes.push("left providers.aiand because you edited it");
-      } else {
-        const modelsText = dropPiProvider(raw.models);
-        await writeStrippedJsonc(
-          id,
-          paths.models,
-          raw.models,
-          modelsText,
-          added?.previousModelsMode ?? DEFAULT_FILE_MODE,
-        );
-      }
+      // auth.json last: drop our credential; the user's own credentials
+      // survive. A file our on created (the snapshot recorded its absence)
+      // and that is now empty is unlinked, never left behind as a stray.
+      const authText = jsoncDelete(raw.auth, [PI_PROVIDER_ID]);
+      await writeStrippedJsonc(
+        id,
+        paths.auth,
+        raw.auth,
+        authText,
+        added?.previousAuthMode ?? PRIVATE_FILE_MODE,
+      );
     } else if (added !== null && (aiandCredential(auth) !== undefined || block !== undefined)) {
       // Record present but the credential or block was repointed: the
       // user's own values, left in place with a note and nothing
@@ -426,13 +451,25 @@ export function createPiFamily(spec: PiFamilySpec): PiFamilyCore {
     // the baked key stays live forever with nothing pointing at it. auth.json
     // comes first — it carries the ownership marker, so it also decides
     // whether the stale files are ours at all.
+    // The moved dir gets the same proof as the current one. auth.json
+    // carries the marker, but a Pi rewrite can drop it; the routing the
+    // record names (the baseUrl `on` wrote, still the default provider)
+    // then proves the stale credential ours too. auth.json goes last, as
+    // above, so a failed strip stays retryable.
+    const stale: Partial<Record<"auth" | "models" | "settings", string>> = {};
     for (const kind of ["auth", "models", "settings"] as const) {
       const stalePath = added?.[`${kind}Path`];
-      if (!stalePath || stalePath === paths[kind] || !existsSync(stalePath)) continue;
-      const rawStale = await readTextIfExists(stalePath);
-      let stale: Record<string, unknown>;
+      if (stalePath && stalePath !== paths[kind] && existsSync(stalePath)) stale[kind] = stalePath;
+    }
+    const staleText: Partial<Record<"auth" | "models" | "settings", string>> = {};
+    const staleParsed: Partial<Record<"auth" | "models" | "settings", Record<string, unknown>>> =
+      {};
+    for (const kind of ["auth", "models", "settings"] as const) {
+      const stalePath = stale[kind];
+      if (!stalePath) continue;
+      staleText[kind] = await readTextIfExists(stalePath);
       try {
-        stale = await readJsoncObject(stalePath, INVALID_CONFIG_HINT);
+        staleParsed[kind] = await readJsoncObject(stalePath, INVALID_CONFIG_HINT);
       } catch (error) {
         if (error instanceof CliError) {
           // Keep the record: after the fix, off must still find this path.
@@ -445,31 +482,35 @@ export function createPiFamily(spec: PiFamilySpec): PiFamilyCore {
         }
         throw error;
       }
-      let staleText = rawStale;
+    }
+    const staleRoutingOurs = routingStillOurs(staleParsed.models, staleParsed.settings, added);
+    for (const kind of ["models", "settings", "auth"] as const) {
+      const stalePath = stale[kind];
+      const parsed = staleParsed[kind];
+      const rawStale = staleText[kind];
+      if (!stalePath || parsed === undefined || rawStale === undefined) continue;
+      let next = rawStale;
       if (kind === "auth") {
-        // Marker-gated like the current dir: a foreign credential is left alone.
-        if (!hasOwnershipMarker(stale)) continue;
-        staleText = jsoncDelete(rawStale, [PI_PROVIDER_ID]);
+        // Marker, or the stale routing proof: a foreign credential is left alone.
+        if (!hasOwnershipMarker(parsed) && !staleRoutingOurs) continue;
+        if (aiandCredential(parsed) === undefined) continue;
+        next = jsoncDelete(rawStale, [PI_PROVIDER_ID]);
       } else if (kind === "models") {
-        // models.json: drop our provider block; unrelated providers
-        // survive, and an emptied `providers` map (ours alone) is
-        // dropped with it. The moved dir gets the same proof as the
-        // current dir: a repointed block is the user's. models.json
-        // carries no stamp (it lives on the auth.json credential), so
-        // the baseUrl-vs-record proof is the only one; the undefined
-        // arm is back-compat with records from before wroteBaseUrl.
-        const staleBlock = aiandProvider(stale);
+        // A repointed or hand-edited block is the user's, as in the current
+        // dir: the same baseUrl, name and api checks. The undefined arm is
+        // back-compat with records from before wroteBaseUrl.
+        const staleBlock = aiandProvider(parsed);
         if (staleBlock === undefined) continue;
-        if (added?.wroteBaseUrl !== undefined && staleBlock.baseUrl !== added.wroteBaseUrl) {
+        if (added?.wroteBaseUrl !== undefined && blockEdited(staleBlock, added.wroteBaseUrl)) {
           notes.push(`left providers.aiand in ${stalePath} because you edited it`);
           continue;
         }
-        staleText = dropPiProvider(rawStale);
+        next = dropPiProvider(rawStale);
       } else {
         // settings.json: the same hand-back logic as the current dir, same
         // record. Values the user changed in between are theirs and stay.
         const handedBack = handBackSettings(rawStale, added);
-        staleText = handedBack.text;
+        next = handedBack.text;
         notes.push(...handedBack.notes);
       }
       const mode: Record<typeof kind, number | undefined> = {
@@ -481,10 +522,10 @@ export function createPiFamily(spec: PiFamilySpec): PiFamilyCore {
         id,
         stalePath,
         rawStale,
-        staleText,
+        next,
         mode[kind] ?? (kind === "auth" ? PRIVATE_FILE_MODE : DEFAULT_FILE_MODE),
       );
-      if (staleText !== rawStale) {
+      if (next !== rawStale) {
         stripped = true;
         notes.push(
           `stripped the aiand config from ${stalePath} because the ${id} config dir moved`,

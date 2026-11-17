@@ -6,7 +6,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } 
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { beforeEach, describe } from "node:test";
-import { enableInput as baseEnableInput, catalogModel, withEnv, withTestEnv } from "./helpers.mjs";
+import {
+  enableInput as baseEnableInput,
+  catalogModel,
+  hermeticPath,
+  plantStub,
+  withEnv,
+  withTestEnv,
+} from "./helpers.mjs";
 
 withTestEnv("aiand-jouzu-test-", (dir) => {
   process.env.AIAND_HOME = join(dir, "home");
@@ -15,7 +22,7 @@ withTestEnv("aiand-jouzu-test-", (dir) => {
   mkdirSync(process.env.AIAND_CONFIG_DIR, { recursive: true });
 });
 
-const { jouzuAdapter } = await import("../dist/agents/jouzu/adapter.js");
+const { jouzuAdapter, resolveJouzuRoot } = await import("../dist/agents/jouzu/adapter.js");
 const { piAdapter } = await import("../dist/agents/pi/adapter.js");
 const { findAgent, AGENTS } = await import("../dist/agents/registry.js");
 const { snapshotFiles, restoreSnapshot } = await import("../dist/agents/snapshot.js");
@@ -238,6 +245,60 @@ describe("jouzu adapter", () => {
   });
 });
 
+describe("jouzu detection and paths", () => {
+  test("a `jz` alone belongs to another tool: not Jouzu", async () => {
+    const bin = join(process.env.AIAND_HOME, "bin-jz");
+    plantStub(bin, "jz");
+    await withEnv({ PATH: hermeticPath(bin, "/usr/bin", "/bin") }, async () => {
+      assert.deepEqual(jouzuAdapter.detect(), { installed: false, path: null });
+    });
+    plantStub(bin, "jouzu");
+    await withEnv({ PATH: hermeticPath(bin, "/usr/bin", "/bin") }, async () => {
+      assert.equal(jouzuAdapter.detect().installed, true);
+    });
+  });
+
+  test("the root matches Jouzu's resolveJouzuPaths per platform, without AIAND_HOME", () => {
+    const home = "/hm";
+    const at = (platform, env, scopedHome) =>
+      resolveJouzuRoot({
+        platform,
+        env,
+        home: platform === "win32" ? "C:\\Users\\u" : home,
+        scopedHome,
+      });
+    assert.equal(at("darwin", {}), "/hm/Library/Application Support/Jouzu");
+    assert.equal(at("linux", {}), "/hm/.config/jouzu");
+    assert.equal(at("linux", { XDG_CONFIG_HOME: "/xdg" }), "/xdg/jouzu");
+    // Jouzu expands a leading ~ in XDG_CONFIG_HOME and APPDATA too.
+    assert.equal(at("linux", { XDG_CONFIG_HOME: "~/cfg" }), "/hm/cfg/jouzu");
+    assert.equal(at("linux", { XDG_CONFIG_HOME: "~" }), "/hm/jouzu");
+    assert.equal(at("win32", {}), "C:\\Users\\u\\AppData\\Roaming\\Jouzu");
+    assert.equal(at("win32", { APPDATA: "D:\\Roam" }), "D:\\Roam\\Jouzu");
+    assert.equal(at("win32", { APPDATA: "~\\Roam" }), "C:\\Users\\u\\Roam\\Jouzu");
+    assert.equal(at("linux", { JOUZU_HOME: "~/jz", XDG_CONFIG_HOME: "/xdg" }), "/hm/jz");
+    // AIAND_HOME stands in for the home and ignores the config-home vars.
+    assert.equal(at("linux", { XDG_CONFIG_HOME: "/xdg" }, "/scoped"), "/scoped/.config/jouzu");
+    assert.equal(at("win32", { APPDATA: "D:\\Roam" }, "C:\\s"), "C:\\s\\AppData\\Roaming\\Jouzu");
+  });
+});
+
+describe("jouzu beside pi", () => {
+  test("each keeps its own files and record: off on one leaves the other on", async () => {
+    mkdirSync(piDir(), { recursive: true });
+    await piAdapter.enable(enableInput({ apiKey: "sk-pi" }));
+    await jouzuAdapter.enable(enableInput({ apiKey: "sk-jz" }));
+    assert.equal((await piAdapter.probe()).active, true);
+    assert.equal((await jouzuAdapter.probe()).active, true);
+    await jouzuAdapter.disable();
+    assert.equal((await jouzuAdapter.probe()).active, false);
+    assert.equal((await piAdapter.probe()).active, true, "pi stays on");
+    assert.equal(readJson(join(piDir(), "auth.json")).aiand.key, "sk-pi");
+    assert.ok(existsSync(join(process.env.AIAND_CONFIG_DIR, "snapshots", "pi", "added.json")));
+    await piAdapter.disable();
+  });
+});
+
 describe("jouzu open extras", () => {
   test("names the wired ai& model when the args leave the model to Jouzu", async () => {
     await jouzuAdapter.enable(enableInput());
@@ -262,19 +323,51 @@ describe("jouzu open extras", () => {
       ["--session", "abc"],
       ["--jouzu-profile", "ja"],
       ["--version"],
-      ["--", "--print"],
+      // A forked session keeps its own model (Pi core/sdk.js).
+      ["--fork", "abc", "-p", "hi"],
       ["doctor"],
       ["catalog", "status"],
       ["acp"],
       ["self-update", "check"],
+      // Pi's own commands, read only as args[0] (Pi 1.5.0): flags in front
+      // would turn them into a chat prompt.
+      ["install", "npm:left-pad"],
+      ["uninstall", "npm:left-pad"],
+      ["remove", "npm:left-pad"],
+      ["update"],
+      ["list"],
+      ["config"],
+      ["mcp", "list"],
+      ["auth", "login"],
     ]) {
       assert.deepEqual(await jouzuAdapter.openExtras({ args }), {}, args.join(" "));
     }
+  });
+
+  test("`--` only ends option parsing: the injected flags still go in front", async () => {
+    await jouzuAdapter.enable(enableInput());
+    const wired = { args: ["--provider", "aiand", "--model", "zai-org/glm-5.3"] };
+    assert.deepEqual(await jouzuAdapter.openExtras({ args: ["--verbose", "--", "@a.ts"] }), wired);
+    // After `--`, `--model` is a prompt word, not a model choice.
+    assert.deepEqual(await jouzuAdapter.openExtras({ args: ["--", "--model"] }), wired);
   });
 
   test("adds nothing under --model native or before on", async () => {
     assert.deepEqual(await jouzuAdapter.openExtras({ args: [] }), {});
     await jouzuAdapter.enable(enableInput({ model: "native" }));
     assert.deepEqual(await jouzuAdapter.openExtras({ args: [] }), {});
+  });
+
+  test("on, then on --model native, hands the defaults back and stops naming a model", async () => {
+    writeJson(settingsPath(), { tuiMode: "regular", defaultProvider: "shisa" });
+    await jouzuAdapter.enable(enableInput());
+    assert.equal(readJson(settingsPath()).defaultProvider, "aiand");
+    await jouzuAdapter.enable(enableInput({ model: "native" }));
+    assert.deepEqual(readJson(settingsPath()), { tuiMode: "regular", defaultProvider: "shisa" });
+    assert.deepEqual(await jouzuAdapter.openExtras({ args: [] }), {});
+    // The provider and credential stay wired; off still removes them.
+    assert.ok(readJson(modelsPath()).providers.aiand);
+    await jouzuAdapter.disable();
+    assert.equal(readJson(authPath()).aiand, undefined);
   });
 });

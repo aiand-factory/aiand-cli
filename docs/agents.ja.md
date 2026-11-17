@@ -23,7 +23,7 @@
 
 - サインインしていない場合、aiand がサインインするか確認します(ターミナルでのみ。先に確認します)。
 - エージェントがインストールされていない場合、インストールコマンドが npm によるものなら、aiand が `aiand <agent> --help` に表示されるインストールコマンドを実行するか確認します。それ以外のインストール方法は、確認せずに表示するだけです。確認できるターミナルがない場合、aiand は何もインストールしません。インストールコマンドを表示して、終了コード `127` で終了します。
-- エージェントの接続が未設定の場合、aiand は `on` を実行します。そのため、以降は通常の `opencode`、`codex --profile aiand`、`pi`、`omp`、`copilot`、`hermes`、`jouzu` でも ai& が使われます。何も変更しない `aiand run-agent <agent>` との違いはここです。ただし `aiand claude` は例外で、`aiand run-agent claude` と同じく 1 回のセッションだけを起動し、接続の設定はしません。
+- エージェントの接続が未設定の場合、aiand は `on` を実行します。そのため、以降は通常の `opencode`、`codex --profile aiand`、`pi`、`omp`、`copilot`、`hermes` でも ai& が使われます。通常の `jouzu` でも以降は ai& を選べますが、最後に使ったモデルやプロジェクトのモデルがある場合は、そのモデルで起動します。`aiand jouzu` は ai& のモデルで起動します。何も変更しない `aiand run-agent <agent>` との違いはここです。ただし `aiand claude` は例外で、`aiand run-agent claude` と同じく 1 回のセッションだけを起動し、接続の設定はしません。
 - エージェント名のあとの引数は、入力したとおりにエージェントへ渡されます(たとえば `aiand claude -p "explain this repo"`)。aiand 自身のフラグはエージェント名の前に置きます(`aiand --profile work codex`)。aiand が動詞(サブコマンド)と解釈してしまう引数の前には `--` を置きます(`aiand opencode -- status`)。
 - `on` には、モデルを選ぶ `--model <id>` と、エージェント自身の既定のモデルをそのままにする `--model native` を指定できます。ただし `--model native` は、Codex と Claude Code 以外のエージェントで使えます。Codex は `native` を受け付けません。プロファイルが、ゲートウェイが提供できない `config.toml` のモデルを引き継いでしまうためです。`aiand claude on --model native` は、Claude Code の接続先をゲートウェイに向けますが、Claude Code 自身のモデルの選択はそのまま残るため、ai& が提供していないモデルへのリクエストが失敗することがあります(aiand は警告を表示します)。Claude Code には `--model <id>` を指定してください。
 - エージェントは、絶対パスのエントリだけを含む `PATH` で起動します。空、`.`、相対パス(`./node_modules/.bin` など)のエントリは除外されます。これらは今いるフォルダーを指すため、クローンしたリポジトリに置かれたプログラムがエージェントから実行される恐れがあるためです。エージェントが使うツールは絶対パスで指定してください。

@@ -94,7 +94,12 @@ export async function startSmokeDouble(dir) {
   });
   const baseUrl = await new Promise((resolve, reject) => {
     let buf = "";
-    const timer = setTimeout(() => reject(new Error("smoke double did not start")), 15_000);
+    const timer = setTimeout(() => {
+      // A child that never says READY must not outlive the caller, which
+      // only learns of it once this resolves.
+      doubleChild.kill();
+      reject(new Error("smoke double did not start"));
+    }, 15_000);
     doubleChild.stdout.on("data", (chunk) => {
       buf += String(chunk);
       const ready = buf.match(/READY (\d+)/);

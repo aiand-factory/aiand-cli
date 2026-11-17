@@ -39,8 +39,10 @@ turn them off).
   install hints are printed with no offer. Without a terminal to ask on, aiand
   never installs anything: it prints the install command and exits with `127`.
 - If the agent is not wired yet, aiand runs `on`, so the plain `opencode`,
-  `codex --profile aiand`, `pi`, `omp`, `copilot`, `hermes` and `jouzu` use
-  ai& afterwards too. That is the difference from `aiand run-agent <agent>`,
+  `codex --profile aiand`, `pi`, `omp`, `copilot` and `hermes` use ai&
+  afterwards too. A plain `jouzu` has ai& available afterwards, but starts on
+  its own last-used or project model when it has one; `aiand jouzu` starts on
+  the ai& model. That is the difference from `aiand run-agent <agent>`,
   which changes nothing. `aiand claude` is the exception: it runs one session,
   the same as `aiand run-agent claude`, and wires nothing.
 - Everything after the agent name goes to the agent as typed, such as
