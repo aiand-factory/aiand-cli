@@ -17,6 +17,8 @@ breaking changes while the command surface settles.
   and `aiand restore openwebui --force` reach the same instance. Bare
   `aiand openwebui` wires the instance if needed and opens it in your
   browser. Open WebUI is third-party software that ai& does not control.
+- `aiand openwebui` with extra arguments, and `aiand copilot-app` with
+  extra arguments, are refused before anything is wired.
 - `aiand status` shows an agent whose state cannot be checked as `unknown`
   with the reason, instead of failing.
 

@@ -27,6 +27,7 @@ export type EnableResult = {
 
 export type DisableInput = {
   loggingOut?: string; // the aiand profile being logged out, when logout calls
+  force?: boolean; // `off --force`: forget remote state aiand cannot reach (Open WebUI)
 };
 
 export type DisableResult = {

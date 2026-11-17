@@ -37,6 +37,19 @@ export const ADMIN_KEY_HINT = [
 ].join("\n");
 
 /**
+ * An instance URL safe to print: origin and path only, never a username,
+ * password, query or fragment, which may hold a credential.
+ */
+export function displayUrl(raw: string): string {
+  try {
+    const parsed = new URL(raw.trim());
+    return trimSlash(`${parsed.origin}${parsed.pathname}`);
+  } catch {
+    return "(not a URL)";
+  }
+}
+
+/**
  * Normalize an instance URL. It carries both the ai& key and an admin
  * credential, so it must be https, or http on loopback.
  */
@@ -46,7 +59,7 @@ export function normalizeInstanceUrl(raw: string): string {
   try {
     parsed = new URL(value);
   } catch {
-    throw new CliError(`OPENWEBUI_URL must be an absolute URL (got "${raw}").`, {
+    throw new CliError("OPENWEBUI_URL must be an absolute URL.", {
       hint: `For example ${DEFAULT_OPENWEBUI_URL} or https://chat.example.com.`,
     });
   }
@@ -56,12 +69,15 @@ export function normalizeInstanceUrl(raw: string): string {
     });
   }
   if (parsed.search !== "" || parsed.hash !== "") {
-    throw new CliError(`OPENWEBUI_URL must not have a query or fragment (got "${raw}").`, {
-      hint: "Use the address you open Open WebUI at, e.g. https://chat.example.com.",
-    });
+    throw new CliError(
+      `OPENWEBUI_URL must not have a query or fragment (got ${displayUrl(value)}?…).`,
+      {
+        hint: "Use the address you open Open WebUI at, e.g. https://chat.example.com.",
+      },
+    );
   }
   if (!isRoutableBaseUrl(value)) {
-    throw new CliError(`OPENWEBUI_URL must use https (got "${raw}").`, {
+    throw new CliError(`OPENWEBUI_URL must use https (got ${displayUrl(value)}).`, {
       hint: "aiand sends your ai& key and an Open WebUI admin key to it, so plain http is allowed only on loopback (localhost, 127.0.0.1, ::1).",
     });
   }

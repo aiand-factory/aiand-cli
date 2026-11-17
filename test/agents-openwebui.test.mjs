@@ -5,7 +5,14 @@
 // count, settings outside the URL range dropped.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { delimiter, dirname, join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -33,7 +40,7 @@ const box = withTestEnv("aiand-openwebui-test-", () => {});
 const connections = await import("../dist/agents/openwebui/connections.js");
 
 /** The double's state; tests seed and inspect it directly. */
-const owui = { config: null, requests: [] };
+const owui = { config: null, requests: [], dropNextUpdateResponse: false };
 let owuiUrl;
 let server;
 
@@ -81,7 +88,13 @@ before(async () => {
       }
       if (req.method === "GET" && req.url === "/openai/config") return send(200, owui.config);
       if (req.method === "POST" && req.url === "/openai/config/update") {
-        return send(200, applyUpdate(JSON.parse(body)));
+        const applied = applyUpdate(JSON.parse(body));
+        if (owui.dropNextUpdateResponse) {
+          // Applied, but the answer never arrives (a proxy timeout, a reset).
+          owui.dropNextUpdateResponse = false;
+          return req.socket.destroy();
+        }
+        return send(200, applied);
       }
       return send(404, { detail: "Not Found" });
     });
@@ -678,5 +691,112 @@ describe("aiand openwebui (open)", () => {
     const { code, stderr } = await cli(["run-agent", "openwebui"], state);
     assert.equal(code, 1);
     assert.match(stderr, /does not support session launches/);
+  });
+});
+
+describe("review follow-ups", () => {
+  test("status reads off while Open WebUI's OpenAI API or our connection is switched off", async () => {
+    const state = freshState();
+    seedTwoUserConnections(true);
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    const status = async () =>
+      JSON.parse((await cli(["openwebui", "status", "--json"], state)).stdout);
+    assert.equal((await status()).state, "on");
+    owui.config.ENABLE_OPENAI_API = false;
+    assert.equal((await status()).state, "off", "API off: nothing routes");
+    owui.config.ENABLE_OPENAI_API = true;
+    owui.config.OPENAI_API_CONFIGS["2"] = { ...owui.config.OPENAI_API_CONFIGS["2"], enable: false };
+    assert.equal((await status()).state, "off", "our connection off: nothing routes");
+    // on turns ours back on, in place.
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    assert.equal(owui.config.OPENAI_API_CONFIGS["2"].enable, true);
+    assert.deepEqual(owui.config.OPENAI_API_BASE_URLS, [USER_A, USER_B, OURS_URL]);
+    assert.equal((await status()).state, "on");
+  });
+
+  test("a write the instance applies but never answers still leaves off able to remove it", async () => {
+    const state = freshState();
+    seedTwoUserConnections(false);
+    owui.dropNextUpdateResponse = true;
+    const on = await cli(["openwebui", "on"], state);
+    assert.notEqual(on.code, 0, "the lost response is an error");
+    assert.deepEqual(owui.config.OPENAI_API_BASE_URLS, [USER_A, USER_B, OURS_URL], "but it landed");
+    assert.equal(added(state).keySha256, sha(K1), "and the record names it");
+    const off = await cli(["openwebui", "off"], state);
+    assert.equal(off.code, 0, off.stderr);
+    assert.deepEqual(owui.config.OPENAI_API_BASE_URLS, [USER_A, USER_B]);
+    assert.equal(owui.config.ENABLE_OPENAI_API, false, "the API flag on turned on goes back off");
+  });
+
+  test("a re-on never records our own URL as one that was there before", async () => {
+    const state = freshState();
+    seedTwoUserConnections(true);
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    owui.config.ENABLE_OPENAI_API = false; // an admin switched the API off
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    assert.deepEqual(added(state).previousUrls, [USER_A, USER_B]);
+  });
+
+  test("off --force forgets an instance it cannot reach, even with the admin key set", async () => {
+    const state = freshState();
+    seedTwoUserConnections();
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    // The instance went away (the record still names it): CLOSED_URL is loopback, refused.
+    const record = added(state);
+    record.instanceUrl = CLOSED_URL;
+    writeFileSync(addedPath(state), JSON.stringify(record));
+    const plain = await cli(["openwebui", "off"], state, { OPENWEBUI_URL: undefined });
+    assert.equal(plain.code, 1, "without --force an unreachable instance stops off");
+    assert.ok(existsSync(addedPath(state)));
+    const forced = await cli(["openwebui", "off", "--force"], state, { OPENWEBUI_URL: undefined });
+    assert.equal(forced.code, 0, forced.stderr);
+    assert.match(forced.stdout, /could not reach Open WebUI .* the ai& key is still there/);
+    assert.equal(existsSync(addedPath(state)), false);
+  });
+
+  test("status and URL errors never print credentials from OPENWEBUI_URL", async () => {
+    const state = freshState();
+    seed();
+    const status = await cli(["openwebui", "status", "--json"], state, {
+      OPENWEBUI_URL: "https://admin:hunter2@chat.example.com/?api_key=sk-leak",
+      OPENWEBUI_API_KEY: undefined,
+    });
+    assert.doesNotMatch(status.stdout + status.stderr, /hunter2|sk-leak|admin:/);
+    for (const url of [
+      "https://chat.example.com/?api_key=sk-leak",
+      "not a url sk-leak",
+      "http://chat.example.com/sk-x?k=sk-leak",
+    ]) {
+      const on = await cli(["openwebui", "on"], state, { OPENWEBUI_URL: url });
+      assert.equal(on.code, 1, url);
+      assert.doesNotMatch(on.stdout + on.stderr, /sk-leak/, url);
+    }
+  });
+
+  test("stray arguments are refused before anything is wired", async () => {
+    const state = freshState();
+    seedTwoUserConnections();
+    const result = await cli(["openwebui", "unexpected"], state);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /takes no arguments/);
+    assert.equal(owui.requests.length, 0, "no request reached the instance");
+    assert.equal(existsSync(addedPath(state)), false);
+  });
+
+  test("a snapshot of a new instance replaces the old one, leaving one copy", async () => {
+    const state = freshState();
+    seedTwoUserConnections();
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    assert.equal((await cli(["openwebui", "off"], state)).code, 0);
+    const other = owuiUrl.replace("127.0.0.1", "localhost");
+    assert.equal((await cli(["openwebui", "on"], state, { OPENWEBUI_URL: other })).code, 0);
+    const dirs = readdirSync(snapshotDir(state)).filter((name) =>
+      statSync(join(snapshotDir(state), name)).isDirectory(),
+    );
+    assert.equal(dirs.length, 1, dirs.join(", "));
+    assert.equal(
+      JSON.parse(readFileSync(join(snapshotDir(state), "latest.json"), "utf8")).remote.instanceUrl,
+      other,
+    );
   });
 });

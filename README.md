@@ -352,10 +352,12 @@ credit. `off` removes only the connection aiand added; one whose key you
 changed is yours and stays. `off`, logout and key rotation need
 `OPENWEBUI_API_KEY` set to reach the instance, and fail when it is not, so
 the ai& key is never left behind silently. If you can no longer reach the
-instance, `aiand openwebui off --force` forgets it; then remove the
-connection there and revoke the key in the ai& console. `on` turns on Open
-WebUI's OpenAI API if it was off, and `off` turns it back off unless you
-added connections since.
+instance, or have no admin key for it, `aiand openwebui off --force`
+forgets it; then remove the connection there and revoke the key in the
+ai& console. `on` turns on Open WebUI's OpenAI API if it was off, and
+`off` turns it back off unless you added connections since. `status` reads
+`off` while an admin has switched off the OpenAI API or the ai& connection,
+and `on` switches the connection back on.
 `aiand restore openwebui --force` puts back the connection list from before
 `on`; aiand keeps no Open WebUI key on disk, so each restored connection
 keeps the key the instance holds now.

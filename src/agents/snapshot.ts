@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { CliError } from "../cli/errors.js";
@@ -196,6 +196,27 @@ export async function hasSnapshot(agentId: string): Promise<boolean> {
 }
 
 /** Drop this agent's snapshot dir (manifest, copies, added.json). Used when enable() fails after a fresh snapshot. */
+/**
+ * Remove everything in this agent's snapshot dir except `keep` (the copy
+ * dir the manifest now names) and the manifest: the old copies and the old
+ * added-state record, as discardSnapshot would. Run after a replacement
+ * manifest is written, never before.
+ */
+export async function pruneSnapshots(agentId: string, keep: string): Promise<void> {
+  const dir = snapshotDir(agentId);
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const path = join(dir, entry);
+    if (path === keep || entry === MANIFEST_FILE) continue;
+    await rm(path, { recursive: true, force: true });
+  }
+}
+
 export async function discardSnapshot(agentId: string): Promise<void> {
   await rm(snapshotDir(agentId), { recursive: true, force: true });
 }

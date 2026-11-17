@@ -103,6 +103,21 @@ async function runOpen(
   const target = parse(globalArgs);
   const profile = str(target, "profile");
   const retarget = profile !== undefined || str(target, "base-url") !== undefined;
+  // A config-only agent takes no args: refuse before anything is
+  // installed, signed in or wired.
+  if (adapter.configOnly && passthrough.length > 0) {
+    if (adapter.openConfigured) {
+      throw new CliError(`aiand ${adapter.id} takes no arguments for ${adapter.label}.`, {
+        hint: `Run \`aiand ${adapter.id}\` on its own to open ${adapter.label}.`,
+      });
+    }
+    throw new CliError(
+      `The ${adapter.label} is a desktop app; aiand wires it but cannot launch it.`,
+      {
+        hint: "aiand copilot runs the GitHub Copilot CLI.",
+      },
+    );
+  }
   await installIfMissing(adapter);
   if (adapter.openLaunchesSession) {
     const flags = ["profile", "base-url"].flatMap((flag) => {
@@ -119,11 +134,6 @@ async function runOpen(
     await requireSessionKey();
   }
   if (adapter.configOnly && adapter.openConfigured) {
-    if (passthrough.length > 0) {
-      throw new CliError(`aiand ${adapter.id} takes no arguments for ${adapter.label}.`, {
-        hint: `Run \`aiand ${adapter.id}\` on its own to open ${adapter.label}.`,
-      });
-    }
     const target = await adapter.openConfigured();
     if (await openBrowser(target.url)) {
       out(`Opened ${adapter.label} at ${target.url}`);
@@ -134,14 +144,6 @@ async function runOpen(
     return;
   }
   if (adapter.configOnly) {
-    if (passthrough.length > 0) {
-      throw new CliError(
-        `The ${adapter.label} is a desktop app; aiand wires it but cannot launch it.`,
-        {
-          hint: "aiand copilot runs the GitHub Copilot CLI.",
-        },
-      );
-    }
     out("Open the GitHub Copilot app and pick the ai& model in its model menu.");
     return;
   }

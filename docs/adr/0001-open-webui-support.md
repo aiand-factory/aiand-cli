@@ -78,7 +78,8 @@ the admin API.
   stop working too.
 - **off without the admin credential fails.** Otherwise `init --off` and
   uninstall would carry on and leave a live key on a shared server.
-  `off --force` forgets the record when the instance is out of reach, and
+  `off --force` forgets the record when the instance is out of reach or no
+  admin credential is set, and
   says the key is still on the instance and should be revoked.
 - **status:** read the live list from the instance. This never trusts the
   record alone. With no record there is no network call. With a record but no

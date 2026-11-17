@@ -7,7 +7,7 @@ import { notInstalledError } from "./launch.js";
 import {
   discardSnapshot,
   getRemoteSnapshot,
-  hasSnapshot,
+  pruneSnapshots,
   snapshotCovers,
   snapshotFiles,
 } from "./snapshot.js";
@@ -152,8 +152,10 @@ export async function agentOn(
     // A remote config (no managed files) is captured by the adapter itself,
     // before discarding anything: a capture that fails leaves no half-state.
     const remote = adapter.snapshotRemote ? await adapter.snapshotRemote() : undefined;
-    if (await hasSnapshot(adapter.id)) await discardSnapshot(adapter.id);
-    await snapshotFiles(adapter.id, managed, remote);
+    // The new capture is committed (its manifest written) before the old
+    // one is pruned: a failure in between leaves a usable snapshot.
+    const kept = await snapshotFiles(adapter.id, managed, remote);
+    await pruneSnapshots(adapter.id, kept);
     snapshottedThisCall = true;
   }
 
@@ -219,7 +221,7 @@ export async function agentOff(
     await adapter.offGuard({ force: opts.force ?? false });
   }
 
-  const result = (await adapter.disable()) ?? { stripped: false };
+  const result = (await adapter.disable({ force: opts.force ?? false })) ?? { stripped: false };
   const notes = result.notes?.filter(Boolean) ?? [];
   if (!result.stripped && notes.length === 0) {
     return {

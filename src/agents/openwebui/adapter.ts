@@ -23,7 +23,9 @@ import {
   adminKey,
   type ConnectionConfig,
   DEFAULT_OPENWEBUI_URL,
+  displayUrl,
   normalizeInstanceUrl,
+  type OpenAIConfig,
   readOpenAIConfig,
   requireAdminKey,
   writeOpenAIConfig,
@@ -145,8 +147,15 @@ async function probe(): Promise<ProbeResult> {
     });
   }
   const config = await readOpenAIConfig(record.instanceUrl, key);
+  const ours = findOurs(config, record.baseUrl, record.keySha256);
+  // Routing needs the OpenAI API on and our connection enabled: an admin
+  // can switch either off in Admin › Settings › Connections.
+  const live =
+    ours !== -1 &&
+    config.ENABLE_OPENAI_API === true &&
+    config.OPENAI_API_CONFIGS[String(ours)]?.enable !== false;
   // Open WebUI picks the model per chat, so there is no model in effect.
-  return { active: findOurs(config, record.baseUrl, record.keySha256) !== -1, model: null };
+  return { active: live, model: null };
 }
 
 async function snapshotRemote(): Promise<OpenWebUISnapshot> {
@@ -187,17 +196,30 @@ async function enable(input: EnableInput): Promise<EnableResult> {
     ours === -1
       ? appendConnection(current, baseUrl, input.apiKey, aiandConnectionConfig())
       : replaceKey(current, ours, input.apiKey, baseUrl);
+  if (ours !== -1 && next.OPENAI_API_CONFIGS[String(ours)]?.enable === false) {
+    // `on` routes: a connection of ours an admin switched off goes back on.
+    next = {
+      ...next,
+      OPENAI_API_CONFIGS: {
+        ...next.OPENAI_API_CONFIGS,
+        [String(ours)]: { ...next.OPENAI_API_CONFIGS[String(ours)], enable: true },
+      },
+    };
+  }
   let enabledApi = ours !== -1 && record?.enabledApi === true;
   let previousUrls = enabledApi ? record?.previousUrls : undefined;
   if (!next.ENABLE_OPENAI_API) {
     next = { ...next, ENABLE_OPENAI_API: true };
     enabledApi = true;
-    previousUrls = current.OPENAI_API_BASE_URLS;
+    // The connections that were there before, never ours: a later one to
+    // the same URL is the user's.
+    previousUrls = current.OPENAI_API_BASE_URLS.filter((_, index) => index !== ours);
   }
 
-  const stored = await writeOpenAIConfig(instance, key, next);
+  // Recorded before the write: a write the instance applies but whose
+  // response is lost must still leave off able to find the connection. A
+  // record of a write that never landed matches nothing and clears itself.
   const keySha256 = keyFingerprint(input.apiKey);
-  // Recorded straight after the write: whatever happens next, off can find it.
   await recordAddedState(OPENWEBUI_ID, {
     instanceUrl: instance,
     baseUrl,
@@ -205,6 +227,7 @@ async function enable(input: EnableInput): Promise<EnableResult> {
     enabledApi,
     ...(previousUrls ? { previousUrls } : {}),
   } satisfies OpenWebUIRecord);
+  const stored = await writeOpenAIConfig(instance, key, next);
   if (findOurs(stored, baseUrl, keySha256) === -1) {
     throw new CliError(`Open WebUI at ${instance} did not keep the ai& connection.`, {
       hint: "Check Admin › Settings › Connections, then run `aiand openwebui on` again.",
@@ -241,7 +264,21 @@ async function disable(input?: DisableInput): Promise<DisableResult> {
     };
   }
 
-  const current = await readOpenAIConfig(record.instanceUrl, key);
+  let current: OpenAIConfig;
+  try {
+    current = await readOpenAIConfig(record.instanceUrl, key);
+  } catch (error) {
+    // --force means the instance is out of reach: forget it, and say what
+    // is still there. Without --force the failure stops `off`.
+    if (!input?.force || !(error instanceof CliError)) throw error;
+    await clearAddedState(OPENWEBUI_ID);
+    return {
+      stripped: false,
+      notes: [
+        `aiand could not reach Open WebUI at ${record.instanceUrl} (${error.message}), so the ai& key is still there. aiand forgot it (--force). Remove the ai& connection in Admin › Settings › Connections, and revoke the key in the ai& console.`,
+      ],
+    };
+  }
   const ours = findOurs(current, record.baseUrl, record.keySha256);
   if (ours === -1) {
     await clearAddedState(OPENWEBUI_ID);
@@ -377,7 +414,8 @@ async function restore(value: object): Promise<string[]> {
 /** The instance a record or the environment names, without the network. */
 function knownInstance(): string | undefined {
   const fromEnv = process.env.OPENWEBUI_URL?.trim();
-  if (fromEnv) return fromEnv;
+  // `status` prints this: never a username, password or query from the URL.
+  if (fromEnv) return displayUrl(fromEnv);
   const recorded = getAddedStateSync<{ instanceUrl?: unknown }>(OPENWEBUI_ID)?.instanceUrl;
   if (typeof recorded === "string") return recorded;
   // An admin key with no URL means the default instance.
