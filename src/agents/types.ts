@@ -107,6 +107,11 @@ export type AgentAdapter = {
   // bakes a key but cannot swap it leaves this out, and rebake tells the user
   // to re-run `aiand <id> on`; one that bakes no key at all (Codex asks
   // `aiand key export`) defines it as `false` so rebake stays silent.
+  restoreUnsupported?: string;
+  // ^ Why `restore --force` cannot put this agent back byte for byte, for
+  // adapters whose config shares a file with the app's own data (the
+  // Copilot app's data.db). `restore` refuses with it instead of claiming a
+  // restore it did not do.
   launcherOnly?: boolean; // adapters with session-only routing: on/off unsupported
   configOnly?: boolean; // adapters whose agent is a GUI app: open wires but never spawns
   openLaunchesSession?: boolean; // bare `aiand <id>` runs one session (run-agent), never `on`

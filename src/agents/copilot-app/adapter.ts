@@ -471,6 +471,12 @@ export const copilotAppAdapter: AgentAdapter = {
   managedFiles(): string[] {
     return [];
   },
+  // data.db is the app's whole database (conversations and settings too), so
+  // aiand keeps no copy: rolling it back would undo the app's own changes
+  // since `on`. `on` only adds rows under its own provider id and never
+  // edits a row of yours, so `off` already puts the database back.
+  restoreUnsupported:
+    "The app keeps its providers in data.db together with its own data, so aiand keeps no copy of it. aiand only adds its own provider and model rows and never changes yours: run `aiand copilot-app off` to remove them.",
   probe,
   enable,
   enableGuard: refuseRunningApp,

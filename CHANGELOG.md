@@ -7,6 +7,21 @@ breaking changes while the command surface settles.
 
 ## [Unreleased]
 
+### Fixed
+
+- `aiand copilot on` writes each model's published reasoning levels as
+  `capabilities.supports.reasoning_effort`, the field Copilot CLI's config
+  reference documents, so Copilot offers exactly those levels. It used to
+  write `reasoningEffort: true`, which turns on no reasoning control.
+  Models that take images are now marked `vision`, so Copilot sends them
+  images that tools return instead of treating every ai& model as
+  text-only. Checked against Copilot CLI 1.0.89 and 1.0.112.
+- `aiand restore copilot-app --force` no longer reports "config restored
+  from snapshot" after restoring nothing. aiand keeps no copy of the app's
+  `data.db`, which also holds the app's own data, so `restore` now refuses
+  and points to `aiand copilot-app off`, which removes exactly the rows
+  aiand added.
+
 ### Changed
 
 - Running `aiand claude` on its own (no `on`, `off` or `status`) starts one

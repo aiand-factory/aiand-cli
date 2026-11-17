@@ -9,8 +9,12 @@ import { DatabaseSync } from "node:sqlite";
 import test, { beforeEach, describe } from "node:test";
 import {
   enableInput as baseEnableInput,
+  CLOSED_URL,
   catalogModel,
+  cliEnv,
   plantStub,
+  runCli,
+  seedCatalogCache,
   withTestEnv,
 } from "./helpers.mjs";
 
@@ -512,5 +516,40 @@ describe("copilot-app db hygiene", () => {
     // A DELETE alone leaves the old settings_json bytes readable in freed
     // pages; off must rewrite the file so the key is gone from the bytes.
     assert.equal(readFileSync(dbPath()).includes(input.apiKey), false);
+  });
+});
+
+describe("aiand restore copilot-app", () => {
+  test("refuses plainly instead of claiming a restore, and keeps the record off needs", async () => {
+    // It used to print "config restored from snapshot" and exit 0 while the
+    // ai& row, key included, stayed in data.db: `on` keeps no copy of data.db.
+    createAppDb();
+    seedForeignProvider();
+    seedCatalogCache(process.env.AIAND_CONFIG_DIR);
+    const env = cliEnv({ AIAND_BASE_URL: CLOSED_URL });
+    const on = await runCli(["copilot-app", "on"], { env });
+    assert.equal(on.code, 0, on.stderr);
+    const before = readFileSync(dbPath());
+
+    for (const args of [
+      ["restore", "copilot-app", "--force"],
+      ["restore", "copilot-app"],
+    ]) {
+      const restore = await runCli(args, { env });
+      assert.equal(restore.code, 1, args.join(" "));
+      assert.doesNotMatch(restore.stdout, /restored/);
+      assert.match(restore.stderr, /aiand cannot restore the GitHub Copilot app from a snapshot/);
+      assert.match(restore.stderr, /aiand copilot-app off/);
+    }
+    assert.ok(before.equals(readFileSync(dbPath())), "restore touched nothing");
+    assert.equal(ourProviders().length, 1);
+
+    const off = await runCli(["copilot-app", "off"], { env });
+    assert.equal(off.code, 0, off.stderr);
+    assert.deepEqual(ourProviders(), []);
+    assert.deepEqual(
+      rows("SELECT id FROM model_providers").map((row) => row.id),
+      ["user-1"],
+    );
   });
 });
