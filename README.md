@@ -282,6 +282,9 @@ how to open it yourself — aiand cannot launch a GUI app, and anything after
 `copilot-app` errors. `aiand restore copilot-app` refuses: `data.db` also
 holds the app's own data, so aiand keeps no copy of it, and `on` only adds
 rows of its own, so `aiand copilot-app off` is what puts the database back.
+A key rotation that happens while the app is open cannot update it; aiand
+says so, and the next aiand command you run after quitting the app updates
+the key (or run `aiand copilot-app on`).
 
 ```bash
 aiand hermes on          # route Hermes through ai&

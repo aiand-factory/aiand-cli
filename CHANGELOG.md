@@ -16,6 +16,12 @@ breaking changes while the command surface settles.
   Models that take images are now marked `vision`, so Copilot sends them
   images that tools return instead of treating every ai& model as
   text-only. Checked against Copilot CLI 1.0.89 and 1.0.112.
+- A key rotation that finds the GitHub Copilot app open is no longer lost.
+  aiand says the app keeps its old key until you quit it, records the
+  rotation (a fingerprint of the stale key, never the key), and the next
+  aiand command run with the app closed updates the key. Later rotations
+  also catch up an app that fell behind; they used to skip it for good,
+  because their previous key no longer matched the app's.
 - `aiand restore copilot-app --force` no longer reports "config restored
   from snapshot" after restoring nothing. aiand keeps no copy of the app's
   `data.db`, which also holds the app's own data, so `restore` now refuses
