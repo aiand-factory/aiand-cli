@@ -135,7 +135,10 @@ breaking changes while the command surface settles.
   approval and `v*`-only deployment can be required for it. A first run packs
   from the tagged checkout and stops if the draft release already holds a
   different tarball of the same name; only a resumed run reuses an uploaded one.
-  CONTRIBUTING.md lists the repository and npm settings this relies on.
+  CONTRIBUTING.md lists the repository and npm settings this relies on. The
+  draft release is published only when it holds exactly the tarball,
+  `SHA256SUMS`, `install.sh` and `install.ps1`; an asset anyone else attached
+  to it stops the run, naming what to remove, before anything is published.
 
 ### Fixed
 
@@ -607,7 +610,11 @@ breaking changes while the command surface settles.
   next one before it does anything else. Staging and `cli.prev-*` folders an
   earlier run left behind are removed on the next run; a folder that is not an
   `@aiand/cli` install, a link, and one a still-running installer is using are
-  left alone. `install.ps1` does the same.
+  left alone. `install.ps1` does the same. The pid in a `cli.prev-<pid>` name
+  counts with or without a suffix after it, and a run that finds another
+  installer's set-aside install, while that installer is still running, no
+  longer puts it back or deletes it, which made that installer's second move
+  nest the new install inside the old one.
 - A release download over the size limit stops at the limit with a message
   naming it, instead of being downloaded whole and then refused without one.
   The limit is 16 MiB for the tarball (a release is a few hundred KiB), 4 MiB

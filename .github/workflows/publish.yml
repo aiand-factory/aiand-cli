@@ -240,16 +240,43 @@ jobs:
       # The release is created as a draft and published once every asset is
       # attached, so `releases/latest` never serves one without SHA256SUMS. A
       # re-run after a failure here finds the leftover release and completes it.
+      # Publishing a draft publishes everything on it, and anyone with write
+      # access can attach to one, so the draft is published only when it holds
+      # exactly the four assets this workflow attached (the tarball above, the
+      # three here) and nothing else.
       - name: Create the GitHub release
         run: |
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
           ASSETS=("$RUNNER_TEMP/release/SHA256SUMS" "$RUNNER_TEMP/release/install.sh" "$RUNNER_TEMP/release/install.ps1")
+          EXPECTED=("aiand-cli-${TAG#v}.tgz" SHA256SUMS install.sh install.ps1)
           node scripts/release.mjs notes "${TAG#v}" > "$RUNNER_TEMP/notes.md"
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
             gh release create "$TAG" --verify-tag --draft --notes-file "$RUNNER_TEMP/notes.md" --title "$TAG" "${ASSETS[@]}"
+          fi
+          HAVE="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          EXTRA=""
+          MISSING=""
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            case " ${EXPECTED[*]} " in
+              *" $name "*) ;;
+              *) EXTRA="$EXTRA $(printf '%q' "$name")" ;;
+            esac
+          done <<< "$HAVE"
+          for name in "${EXPECTED[@]}"; do
+            printf '%s\n' "$HAVE" | grep -qxF -- "$name" || MISSING="$MISSING $name"
+          done
+          if [ -n "$EXTRA" ] || [ -n "$MISSING" ]; then
+            if [ -n "$EXTRA" ]; then
+              echo "::error::the $TAG release holds assets this workflow did not attach:$EXTRA. Nothing was published. Find out who attached them, remove each from the draft release (gh release delete-asset $TAG <name>), and re-run"
+            fi
+            if [ -n "$MISSING" ]; then
+              echo "::error::the $TAG release is missing$MISSING. Nothing was published. Re-run this workflow so the missing asset is attached"
+            fi
+            exit 1
           fi
           gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --title "$TAG" --draft=false --latest
         env:

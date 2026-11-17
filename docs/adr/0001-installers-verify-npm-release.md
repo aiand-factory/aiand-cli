@@ -56,7 +56,8 @@ packs from the tagged checkout; if the draft release already holds a tarball
 of that name, it has to be byte-identical to that pack or the run stops. Only
 a resumed run (npm already has the version) takes a tarball from the draft
 release instead of packing, and it still requires npm to serve those exact
-bytes. The job runs in the GitHub environment `release`, which is what the
+bytes. The draft is published only when it holds exactly those four assets, so
+one someone else attached is never published with them. The job runs in the GitHub environment `release`, which is what the
 next section depends on.
 
 There's no fallback. With no release, a 404, or a 403/429 rate limit, the

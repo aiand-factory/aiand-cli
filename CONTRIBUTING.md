@@ -162,7 +162,10 @@ publishes, and a resume downloads it from there. Only a resume reuses it: a
 first run always packs from the tagged checkout, and if the draft release
 already holds a tarball of that name it has to be byte-identical to that pack,
 or the run stops and says so. (Delete the asset from the draft release, after
-finding out who attached it, to go on.) The workflow also pins an exact
+finding out who attached it, to go on.) The release is published only when the
+draft holds exactly the tarball, `SHA256SUMS`, `install.sh` and `install.ps1`;
+any other asset on it stops the run before anything is published, and the
+error names what to remove with `gh release delete-asset`. The workflow also pins an exact
 Node version, so a later run packs on the same toolchain; bump it deliberately.
 A tag moved after the publish stops the run. It stops, as before, once the release exists
 with its `SHA256SUMS`.
