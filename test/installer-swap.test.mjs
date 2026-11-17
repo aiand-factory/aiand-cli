@@ -163,7 +163,7 @@ describe("a previous install set aside by a run that was killed", () => {
       const c = caseDir();
       try {
         const aiand = join(c.dir, "home", ".aiand");
-        seedInstall(join(aiand, "cli.prev-4242"), OLD);
+        seedInstall(join(aiand, `cli.prev-${deadPid}`), OLD);
         mkdirSync(join(aiand, `.cli-staging-${deadPid}-abcdef`, "dist"), { recursive: true });
         writeFileSync(join(aiand, `.cli-staging-${deadPid}-abcdef`, "dist", "index.js"), "");
         const run = await runInstaller(kind, c.dir, { env: releaseEnv(MISSING) });
@@ -175,16 +175,62 @@ describe("a previous install set aside by a run that was killed", () => {
       }
     });
 
+    // The name carries the pid of the run that set the install aside, bare
+    // (`cli.prev-<pid>`) or with the suffix a second swap in the same run adds.
+    for (const [shape, name] of [
+      ["bare", (pid) => `cli.prev-${pid}`],
+      ["suffixed", (pid) => `cli.prev-${pid}-1700000000-42`],
+    ]) {
+      test(`${file}: a ${shape} name of a dead run is put back`, { skip }, async () => {
+        const c = caseDir();
+        try {
+          const aiand = join(c.dir, "home", ".aiand");
+          seedInstall(join(aiand, name(deadPid)), OLD);
+          const run = await runInstaller(kind, c.dir, { env: releaseEnv(MISSING) });
+          assert.notEqual(run.status, 0);
+          assert.equal(versionAt(join(aiand, "cli")), OLD);
+          assert.deepEqual(leftovers(run.home), []);
+        } finally {
+          c.cleanup();
+        }
+      });
+
+      // Another installer is between the two moves of its swap: putting its
+      // install back would make its second move nest the new one inside it.
+      test(`${file}: a ${shape} name of a running installer is neither put back nor deleted`, {
+        skip,
+      }, async () => {
+        const c = caseDir();
+        try {
+          const aiand = join(c.dir, "home", ".aiand");
+          const live = join(aiand, name(process.pid));
+          seedInstall(live, OLD);
+          const run = await runInstaller(kind, c.dir, { env: releaseEnv(MISSING) });
+          assert.notEqual(run.status, 0);
+          assert.ok(!existsSync(join(aiand, "cli")), "not moved into place under the other run");
+          assert.equal(versionAt(live), OLD, "left where it was, intact");
+        } finally {
+          c.cleanup();
+        }
+      });
+    }
+
     test(`${file}: is not put back when it is not an @aiand/cli install`, { skip }, async () => {
       const c = caseDir();
       try {
         const aiand = join(c.dir, "home", ".aiand");
-        mkdirSync(join(aiand, "cli.prev-4242"), { recursive: true });
-        writeFileSync(join(aiand, "cli.prev-4242", "package.json"), '{"name":"somebody-else"}');
+        mkdirSync(join(aiand, `cli.prev-${deadPid}`), { recursive: true });
+        writeFileSync(
+          join(aiand, `cli.prev-${deadPid}`, "package.json"),
+          '{"name":"somebody-else"}',
+        );
         const run = await runInstaller(kind, c.dir, { env: releaseEnv(MISSING) });
         assert.notEqual(run.status, 0);
         assert.ok(!existsSync(join(aiand, "cli")));
-        assert.ok(existsSync(join(aiand, "cli.prev-4242", "package.json")), "left where it was");
+        assert.ok(
+          existsSync(join(aiand, `cli.prev-${deadPid}`, "package.json")),
+          "left where it was",
+        );
       } finally {
         c.cleanup();
       }
@@ -211,8 +257,10 @@ describe("what an earlier run left next to the install is cleaned up, and only t
         put(`.cli-staging-${deadPid}-partial`, aiandPkg);
         put(".cli-staging-legacy", aiandPkg);
         put(`cli.prev-${deadPid}`, aiandPkg);
-        // Kept: a run that is still going, anything that is not ours, and a link.
+        // Kept: a run that is still going (its staging folder or its set-aside install), anything that is not ours, and a link.
         put(`.cli-staging-${process.pid}-alive`, aiandPkg);
+        put(`cli.prev-${process.pid}`, aiandPkg);
+        put(`cli.prev-${process.pid}-1700000000-42`, aiandPkg);
         put(`.cli-staging-${deadPid}-foreign`, { "package.json": '{"name":"somebody-else"}' });
         put(`cli.prev-${deadPid}-2`, { "package.json": '{"name":"somebody-else"}' });
         put("cli.prev-notes", { "readme.txt": "mine" });
@@ -230,6 +278,8 @@ describe("what an earlier run left next to the install is cleaned up, and only t
             `.cli-staging-${deadPid}-link`,
             `.cli-staging-${process.pid}-alive`,
             "cli",
+            `cli.prev-${process.pid}`,
+            `cli.prev-${process.pid}-1700000000-42`,
             `cli.prev-${deadPid}-2`,
             "cli.prev-notes",
           ].sort(),

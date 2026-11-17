@@ -831,15 +831,23 @@ activate_staged_install() {
 }
 
 # The pid a run put in the name of a folder it made ($1 is the name, $2 what
-# precedes the pid), or nothing for a name from before they carried one.
+# precedes the pid), or nothing for a name from before they carried one. The
+# pid is the digits that follow, alone (`cli.prev-1234`) or before a `-` and
+# more (`.cli-staging-1234-abcdef`, `cli.prev-1234-1700000000-42`).
 leftover_pid() {
   local rest="${1#"$2"}"
-  [[ "${rest}" == *-* ]] || return 0
-  rest="${rest%%-*}"
-  if [[ "${rest}" =~ ^[0-9]+$ ]]; then
-    printf '%s' "${rest}"
+  if [[ "${rest}" =~ ^([0-9]+)(-.*)?$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
   fi
   return 0
+}
+
+# True when the installer that made folder $1 (the pid in its name; $2 is what
+# precedes it) is still running.
+leftover_in_use() {
+  local pid
+  pid="$(leftover_pid "${1##*/}" "$2")"
+  [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
 }
 
 # A run that was killed (SIGKILL, power loss) between the two moves of the swap
@@ -852,6 +860,10 @@ recover_interrupted_swap() {
   for candidate in "${INSTALL_DIR}".prev-*; do
     [[ -d "${candidate}" && ! -L "${candidate}" ]] || continue
     is_aiand_cli_package "${candidate}/package.json" || continue
+    # Another installer is between the two moves of its swap: this is its
+    # install, and putting it back would make its second move nest the new one
+    # inside it.
+    leftover_in_use "${candidate}" "${INSTALL_DIR##*/}.prev-" && continue
     if [[ -z "${newest}" || "${candidate}" -nt "${newest}" ]]; then
       newest="${candidate}"
     fi

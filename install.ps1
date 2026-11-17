@@ -757,11 +757,12 @@ function Get-LeftoverDirs {
     if (-not (Test-Path -LiteralPath $Parent)) { return @() }
     return @(Get-ChildItem -LiteralPath $Parent -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name.StartsWith($Prefix) -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) })
 }
-# True when the pid a run put after $Prefix in a folder name is still running.
+# True when the pid a run put after $Prefix in a folder name is still running:
+# the digits alone (cli.prev-1234) or before a '-' and more (.cli-staging-1234-abcdef).
 function Test-LeftoverInUse {
     param([Parameter(Mandatory = $true)][string]$Name, [Parameter(Mandatory = $true)][string]$Prefix)
     $rest = $Name.Substring($Prefix.Length)
-    if ($rest -notmatch '^(\d+)-') { return $false }
+    if ($rest -notmatch '^(\d+)(-|$)') { return $false }
     return [bool](Get-Process -Id ([int]$Matches[1]) -ErrorAction SilentlyContinue)
 }
 # A run that was killed between the two moves of the swap leaves the previous
@@ -773,6 +774,9 @@ function Restore-PreviousInstall {
     $newest = $null
     foreach ($dir in (Get-LeftoverDirs -Parent (Split-Path -Parent $InstallDir) -Prefix "$leaf.prev-")) {
         if (-not (Test-AiandCliPackage (Join-Path $dir.FullName 'package.json'))) { continue }
+        # Another installer is between the two moves of its swap: this is its install,
+        # and putting it back would make its second move nest the new one inside it.
+        if (Test-LeftoverInUse -Name $dir.Name -Prefix "$leaf.prev-") { continue }
         if (-not $newest -or $dir.LastWriteTimeUtc -gt $newest.LastWriteTimeUtc) { $newest = $dir }
     }
     if (-not $newest) { return }
