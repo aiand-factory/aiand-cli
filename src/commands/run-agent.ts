@@ -15,7 +15,7 @@ Usage
   aiand run-agent <agent> [--model <id>] [--] [args…]
 
 Agents
-${AGENTS.map((a) => `  ${a.id.padEnd(HELP_ID_WIDTH)} ${a.label}`).join("\n")}
+${AGENTS.map((a) => `  ${a.id.padEnd(HELP_ID_WIDTH)} ${a.id === "opencode" ? "OpenCode (terminal only, not OpenCode Desktop)" : a.label}`).join("\n")}
 
 Options
       --model <id>       model from the catalog (default: the agent's own)
@@ -171,6 +171,7 @@ export async function run(argv: string[]): Promise<void> {
     profileName: profile.name,
     catalog,
     baseUrl,
+    args: split.passthrough,
   });
 
   // Child env = inherited, plus the adapter's own injection.
