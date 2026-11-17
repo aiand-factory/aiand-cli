@@ -30,6 +30,7 @@ import type {
   DisableResult,
   EnableInput,
   EnableResult,
+  ProbeDetail,
   ProbeResult,
   SessionLaunchInput,
 } from "../types.js";
@@ -298,7 +299,7 @@ async function readOpencodeConfig(): Promise<Record<string, unknown>> {
   }
 }
 
-async function probe(): Promise<ProbeResult> {
+async function probeDetail(): Promise<ProbeDetail> {
   let parsed: Record<string, unknown>;
   try {
     parsed = await readOpencodeConfig();
@@ -311,7 +312,13 @@ async function probe(): Promise<ProbeResult> {
   return {
     active,
     model: active && rootModel ? rootModel : null,
+    ...(active ? { baseUrl: String(providerOptions(parsed)?.baseURL) } : {}),
   };
+}
+
+async function probe(): Promise<ProbeResult> {
+  const { active, model } = await probeDetail();
+  return { active, model };
 }
 
 async function enable(input: EnableInput): Promise<EnableResult> {
@@ -473,6 +480,7 @@ export const opencodeAdapter: AgentAdapter = {
     return [opencodeConfigPath()];
   },
   probe,
+  bakedBaseUrl: async () => (await probeDetail()).baseUrl,
   enable,
   async disable(): Promise<DisableResult> {
     const path = opencodeConfigPath();

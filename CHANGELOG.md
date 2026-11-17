@@ -99,9 +99,17 @@ breaking changes while the command surface settles.
   endpoint, which sent it to that endpoint. `aiand <agent> on` now records
   the endpoint it wired (`wired.json` in the config directory); an agent
   wired for another one keeps its key and is named in a note with the
-  `aiand --profile <name> <agent> on` command that moves it. Agents wired by
-  earlier versions are judged by the endpoint of the profile that was active
-  before the switch.
+  `aiand --profile <name> <agent> on` command that moves it. An agent wired
+  by an earlier version has no record, so its own config is read for the base
+  URL it holds and compared with the credential's; one that cannot be read
+  is left alone with the same note.
+- Automatic key rotation now holds to the same rule. It used to swap the new
+  key into every agent config that held the previous one, including an agent
+  wired for another API endpoint before 0.8 (no record, an override
+  pointing elsewhere), which kept getting each rotated key. It now swaps
+  only agents wired for the credential's own endpoint, still only where the
+  config holds exactly the key it replaced, and names any other in a note
+  with the `aiand --profile <name> <agent> on` command that moves it.
 - Reads from the gateway are bounded: a server-sent event line over 1 MiB
   ends the stream with an error, error bodies are read up to 64 KiB and
   shown as at most 500 characters (a non-JSON body as its status text plus

@@ -10,6 +10,7 @@ import type {
   DisableResult,
   EnableInput,
   EnableResult,
+  ProbeDetail,
   ProbeResult,
 } from "../types.js";
 import {
@@ -296,7 +297,7 @@ function copilotAppModels(input: EnableInput): CopilotAppModel[] {
   }));
 }
 
-async function probe(): Promise<ProbeResult> {
+async function probeDetail(): Promise<ProbeDetail> {
   let provider: AppProviderRow | null;
   try {
     provider = await findAppProvider(
@@ -310,10 +311,13 @@ async function probe(): Promise<ProbeResult> {
   // GitHub sign-in is required for the app regardless of BYOK, and the
   // app keeps its model pick per session (no persisted default), so probe
   // reports routing only.
-  return {
-    active: isRoutableBaseUrl(provider.settings.baseUrl),
-    model: null,
-  };
+  const active = isRoutableBaseUrl(provider.settings.baseUrl);
+  return { active, model: null, ...(active ? { baseUrl: String(provider.settings.baseUrl) } : {}) };
+}
+
+async function probe(): Promise<ProbeResult> {
+  const { active, model } = await probeDetail();
+  return { active, model };
 }
 
 async function enable(input: EnableInput): Promise<EnableResult> {
@@ -472,6 +476,7 @@ export const copilotAppAdapter: AgentAdapter = {
     return [];
   },
   probe,
+  bakedBaseUrl: async () => (await probeDetail()).baseUrl,
   enable,
   enableGuard: refuseRunningApp,
   offGuard: refuseRunningApp,

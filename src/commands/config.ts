@@ -170,7 +170,6 @@ async function use(name: string | undefined, parsed: Parsed): Promise<void> {
   }
   assertSafeProfileName(name);
   const config = loadConfig();
-  const previous = config.profile;
   if (!config.profiles[name]) {
     config.profiles[name] = {};
   }
@@ -186,12 +185,7 @@ async function use(name: string | undefined, parsed: Parsed): Promise<void> {
     const credential = await loadCredential(name);
     if (credential) {
       const binding = storedBinding(credential) ?? legacyBinding(name);
-      const notes = await rebakeForBinding(
-        credential.access_token,
-        name,
-        binding,
-        legacyBinding(previous).api_url,
-      );
+      const notes = await rebakeForBinding(credential.access_token, name, binding);
       for (const note of notes) {
         err(style.dim(`[${note.agent}] ${note.note}`));
       }

@@ -33,6 +33,7 @@ import type {
   DisableResult,
   EnableInput,
   EnableResult,
+  ProbeDetail,
   ProbeResult,
   SessionLaunchInput,
 } from "../types.js";
@@ -297,12 +298,21 @@ async function readProfile(
   return { raw, sections: foldDottedKeys(splitSections(raw)) };
 }
 
-async function probe(): Promise<ProbeResult> {
+async function probeDetail(): Promise<ProbeDetail> {
   const { sections } = await readProfile();
   const keys = readKeys(sections);
   const active = routedByUs(keys);
   const model = keys[""]?.model;
-  return { active, model: active && typeof model === "string" ? model : null };
+  return {
+    active,
+    model: active && typeof model === "string" ? model : null,
+    ...(active ? { baseUrl: String(keys[PROVIDER_TABLE]?.base_url) } : {}),
+  };
+}
+
+async function probe(): Promise<ProbeResult> {
+  const { active, model } = await probeDetail();
+  return { active, model };
 }
 
 /**
@@ -531,6 +541,7 @@ export const codexAdapter: AgentAdapter = {
     return [currentProfilePath()];
   },
   probe,
+  bakedBaseUrl: async () => (await probeDetail()).baseUrl,
   enableGuard,
   enable,
   disable,

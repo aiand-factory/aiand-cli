@@ -43,34 +43,28 @@ function printRebakeNotes(notes: RebakeNote[]): void {
 /** Server-side name for a key minted on this machine. */
 const defaultKeyName = (): string => `aiand@${hostname() || "cli"}`;
 
-/** Promote a freshly-signed-in profile to the active one when it is not, and
- * return the profile that was active, where existing agents were most likely
- * wired. The URLs the credential was bound to are written onto the profile
- * when they differ from what it already resolves to (`login --base-url X`),
- * since the next run carries no flag and would otherwise be refused. */
-async function activateProfile(name: string, bound: CredentialBinding): Promise<string> {
+/** Promote a freshly-signed-in profile to the active one when it is not. The
+ * URLs the credential was bound to are written onto the profile when they
+ * differ from what it already resolves to (`login --base-url X`), since the
+ * next run carries no flag and would otherwise be refused. */
+async function activateProfile(name: string, bound: CredentialBinding): Promise<void> {
   const stored = legacyBinding(name);
   await updateProfile(name, {
     ...(bound.api_url === stored.api_url ? {} : { apiUrl: bound.api_url }),
     ...(bound.auth_url === stored.auth_url ? {} : { authUrl: bound.auth_url }),
   });
-  const previous = loadConfig().profile;
-  if (previous !== name) {
+  if (loadConfig().profile !== name) {
     await saveConfig({ ...loadConfig(), profile: name });
   }
-  return previous;
 }
 
 /** The rebake after sign-in, held to the endpoint each agent was wired for. */
 async function rebakeAfterSignIn(
-  previousProfile: string,
   profile: ResolvedProfile,
   key: string,
   binding: CredentialBinding,
 ): Promise<void> {
-  printRebakeNotes(
-    await rebakeForBinding(key, profile.name, binding, legacyBinding(previousProfile).api_url),
-  );
+  printRebakeNotes(await rebakeForBinding(key, profile.name, binding));
 }
 
 export type DeviceLoginOptions = {
@@ -257,11 +251,11 @@ async function completeSignIn(
     ...(org ? { org } : {}),
   });
 
-  const previousProfile = await activateProfile(profile.name, bound_to);
+  await activateProfile(profile.name, bound_to);
 
   const session = await openSession(resolveProfile(profile.name));
 
-  await rebakeAfterSignIn(previousProfile, profile, session.token, bound_to);
+  await rebakeAfterSignIn(profile, session.token, bound_to);
 
   if (opts.json) {
     return out(
@@ -392,8 +386,8 @@ export async function pasteLogin(opts: PasteLoginOptions = {}): Promise<void> {
     ...(org ? { org } : {}),
   });
 
-  const previousProfile = await activateProfile(profile.name, bound_to);
-  await rebakeAfterSignIn(previousProfile, profile, key, bound_to);
+  await activateProfile(profile.name, bound_to);
+  await rebakeAfterSignIn(profile, key, bound_to);
 
   if (opts.json) {
     return out(

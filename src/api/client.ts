@@ -240,9 +240,11 @@ async function refresh(
     };
     await saveCredential(profile.name, next);
     // Rebake: agents wired with the rotated key get the new one, or they would
-    // keep a key that expires (or is revoked) while the CLI moves on.
-    const { rebakeAgentKeys } = await import("../agents/rebake.js");
-    for (const note of await rebakeAgentKeys(next.access_token, {
+    // keep a key that expires (or is revoked) while the CLI moves on. Only those
+    // wired for this credential's own API origin, and only where the config still
+    // holds exactly the key it replaced.
+    const { rebakeForBinding } = await import("../agents/rebake.js");
+    for (const note of await rebakeForBinding(next.access_token, profile.name, binding, {
       previousKey: current.access_token,
     })) {
       err(style.dim(`[${note.agent}] ${note.note}`));
