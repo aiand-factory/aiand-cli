@@ -4,7 +4,15 @@
 // for each: where the config lives, which line a binary is, when a launch
 // needs a private server, and what `open`/`status` say with only the app.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { describe, test } from "node:test";
@@ -12,6 +20,7 @@ import {
   CLOSED_URL,
   catalogModel,
   cliEnv,
+  enableInput,
   FAKE_API_KEY,
   hermeticPath,
   plantStub,
@@ -29,6 +38,7 @@ const box = withTestEnv("aiand-oc-surfaces-", (dir) => {
 
 const surfaces = await import("../dist/agents/opencode/surfaces.js");
 const { opencodeAdapter } = await import("../dist/agents/opencode/adapter.js");
+const { recordAddedState } = await import("../dist/agents/snapshot.js");
 
 const posix = process.platform !== "win32";
 
@@ -105,7 +115,18 @@ describe("which OpenCode line a binary is", () => {
 
 describe("--standalone for a 2.x launch", () => {
   test("added for the TUI and the subcommands that take it", () => {
-    for (const args of [[], ["--continue"], ["run", "hi"], ["mini"], ["models"], ["."]]) {
+    for (const args of [
+      [],
+      ["--continue"],
+      ["run", "hi"],
+      ["mini"],
+      ["models"],
+      ["."],
+      // An option's value is not the subcommand.
+      ["--log-level", "debug", "run", "hi"],
+      ["-m", "aiand/x", "run", "hi"],
+      ["--session=abc", "run"],
+    ]) {
       assert.deepEqual(surfaces.standaloneArgs(args), ["--standalone"], args.join(" "));
     }
   });
@@ -119,7 +140,7 @@ describe("--standalone for a 2.x launch", () => {
       ["upgrade"],
       ["mcp", "list"],
       ["acp"],
-      ["--log-level", "debug", "run"],
+      ["--log-level", "debug", "service", "status"],
     ]) {
       assert.deepEqual(surfaces.standaloneArgs(args), [], args.join(" "));
     }
@@ -148,6 +169,24 @@ describe("opencode launches on each line", { skip: !posix }, () => {
         assert.deepEqual((await launch(["service", "status"])).args, []);
       } finally {
         await session.cleanup();
+      }
+    });
+  });
+
+  test("run-agent on 2.x still gets --standalone when it strips the user's --server", async () => {
+    const { bin } = npmInstall(join(box.dir, "ra-2-server"), "@opencode/cli", "2.3.0");
+    await withEnv({ PATH: hermeticPath(bin, "/usr/bin", "/bin") }, async () => {
+      for (const args of [
+        ["run", "hi", "--server", "http://127.0.0.1:4096"],
+        ["--server=http://127.0.0.1:4096", "run", "hi"],
+      ]) {
+        const session = await launch(args);
+        try {
+          assert.deepEqual(session.args, ["--standalone"], args.join(" "));
+          assert.deepEqual(session.stripPassthroughFlags, ["--server"]);
+        } finally {
+          await session.cleanup();
+        }
       }
     });
   });
@@ -237,6 +276,15 @@ describe("OpenCode Desktop without the terminal program", {
     assert.match(withArgs.stderr, /Only the OpenCode desktop app is installed/);
   });
 
+  test("run-agent with only the app fails before any sign-in", async () => {
+    const { env } = state();
+    delete env.AIAND_API_KEY; // signed out: a login prompt here would be the bug
+    const result = await runCli(["run-agent", "opencode", "--", "run", "hi"], { env });
+    assert.equal(result.code, 127);
+    assert.match(result.stderr, /Only the OpenCode desktop app is installed/);
+    assert.doesNotMatch(result.stderr + result.stdout, /sign in|log in|login/i);
+  });
+
   test("aiand status names the terminal and the desktop app", async () => {
     const { home, env } = state();
     const terminalBin = join(home, "..", "bin");
@@ -276,6 +324,63 @@ describe("pre-XDG configs", { skip: !posix }, () => {
     assert.equal(off.code, 0, off.stderr);
     assert.match(off.stdout, /stripped the aiand provider from .*which OpenCode does not read/);
     assert.deepEqual(JSON.parse(readFileSync(legacy, "utf8")), { theme: "dark" });
+  });
+
+  test("the pre-XDG cleanup keeps a private file private", async () => {
+    const root = join(box.dir, "legacy-mode");
+    const home = join(root, "home");
+    const legacy = join(home, ".config", "opencode", "opencode.json");
+    mkdirSync(join(legacy, ".."), { recursive: true });
+    writeFileSync(
+      legacy,
+      JSON.stringify({
+        provider: {
+          other: { options: { apiKey: "sk-other-provider" } },
+          aiand: { options: { apiKey: "sk-old", "x-aiand": true } },
+        },
+      }),
+      { mode: 0o600 },
+    );
+    chmodSync(legacy, 0o600);
+    const cfg = join(root, "cfg");
+    seedCatalogCache(cfg);
+    const env = cliEnv({
+      AIAND_HOME: undefined,
+      HOME: home,
+      XDG_CONFIG_HOME: join(root, "xdg"),
+      AIAND_CONFIG_DIR: cfg,
+      AIAND_API_KEY: FAKE_API_KEY,
+      AIAND_BASE_URL: CLOSED_URL,
+    });
+    assert.equal((await runCli(["opencode", "off"], { env })).code, 0);
+    assert.equal(statSync(legacy).mode & 0o777, 0o600, "another provider's key stays private");
+    assert.equal(
+      JSON.parse(readFileSync(legacy, "utf8")).provider.other.options.apiKey,
+      "sk-other-provider",
+    );
+  });
+
+  test("a record of another config path never hands its model to this one", async () => {
+    // Through `aiand opencode on` the snapshot that holds the record is
+    // replaced when the path changes; this pins the adapter-level guard.
+    const config = join(process.env.AIAND_HOME, ".config", "opencode", "opencode.json");
+    mkdirSync(join(config, ".."), { recursive: true });
+    writeFileSync(config, JSON.stringify({ model: "aiand/zai-org/glm-5.3" }));
+    await recordAddedState("opencode", {
+      model: "aiand/zai-org/glm-5.3",
+      previousModel: "anthropic/claude-x",
+      configPath: "/elsewhere/opencode/opencode.json",
+    });
+    seedCatalogCache(process.env.AIAND_CONFIG_DIR);
+    await opencodeAdapter.enable(
+      enableInput({
+        model: "zai-org/glm-5.3",
+        catalog: [catalogModel("zai-org/glm-5.3")],
+        baseUrl: CLOSED_URL,
+      }),
+    );
+    await opencodeAdapter.disable();
+    assert.equal(JSON.parse(readFileSync(config, "utf8")).model, "aiand/zai-org/glm-5.3");
   });
 });
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type { Model } from "../../api/models.js";
 import { CliError } from "../../cli/errors.js";
-import { agentHome, isRoutableBaseUrl, trimSlash, writeFileAtomic } from "../../config.js";
+import { isRoutableBaseUrl, trimSlash, writeFileAtomic } from "../../config.js";
 import { DEFAULT_FILE_MODE, existingFileMode, PRIVATE_FILE_MODE } from "../../fsutil.js";
 import { resolveDefault } from "../catalog.js";
 import { detectBinary } from "../detect.js";
@@ -26,7 +26,8 @@ import type {
   SessionLaunchInput,
 } from "../types.js";
 import { getApiModels, type OpencodeModelEntry } from "./api-models.js";
-import { desktopAppPath, opencodeConfigDir, standaloneArgs, terminalMajor } from "./surfaces.js";
+import { legacyConfigPath, opencodeConfigPath, stripLegacyConfig } from "./config-path.js";
+import { desktopAppPath, standaloneArgs, terminalMajor, withoutServer } from "./surfaces.js";
 
 /** What enable() recorded so off can leave hand-edited values alone. */
 type OpencodeRecord = {
@@ -36,7 +37,20 @@ type OpencodeRecord = {
   previousMode?: number;
   providerAiand?: unknown;
   created?: boolean;
+  /**
+   * The opencode.json this record describes. A record of another path
+   * (XDG_CONFIG_HOME changed since) says nothing about this file; one from
+   * before this field described the pre-XDG ~/.config path.
+   */
+  configPath?: string;
 };
+
+/** The record, when it describes the config file at `path`. */
+async function recordFor(path: string): Promise<OpencodeRecord | null> {
+  const record = await getAddedState<OpencodeRecord>(OPENCODE_ID);
+  if (!record) return null;
+  return (record.configPath ?? legacyConfigPath()) === path ? record : null;
+}
 
 /** OpenAI-compatible base URL OpenCode dials for every ai& model. */
 const OPENCODE_BASE_URL = "https://api.aiand.com/v1";
@@ -61,45 +75,6 @@ const OPENCODE_KEY_PATH = ["provider", OPENCODE_PROVIDER_ID, "options", "apiKey"
 
 /** Recovery hint for an opencode.json that cannot be parsed or edited. */
 const INVALID_CONFIG_HINT = "Fix it by hand, or delete it and run aiand opencode on again.";
-
-/**
- * The one opencode.json both OpenCode programs read: the terminal
- * `opencode` (1.x and 2.x) and OpenCode Desktop's background service.
- * Both honor XDG_CONFIG_HOME, so `on` writes where they look.
- */
-function opencodeConfigPath(): string {
-  return join(opencodeConfigDir(), "opencode.json");
-}
-
-/**
- * Where aiand wrote before it honored XDG_CONFIG_HOME. A config there that
- * carries our marker holds a baked key OpenCode never read; `off` strips it.
- */
-function legacyConfigPath(): string {
-  return join(agentHome(), ".config", "opencode", "opencode.json");
-}
-
-/** Strip our marked provider from a pre-XDG config, if one is there. */
-async function stripLegacyConfig(): Promise<string | undefined> {
-  const path = legacyConfigPath();
-  if (path === opencodeConfigPath()) return undefined;
-  const raw = await readTextIfExists(path);
-  if (!raw.trim()) return undefined;
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = parseJsonc(raw) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-  if (!parsed || typeof parsed !== "object" || !hasOwnershipMarker(parsed)) return undefined;
-  let text = jsoncDelete(raw, ["provider", OPENCODE_PROVIDER_ID]);
-  const left = (parseJsonc(text) as Record<string, unknown>).provider;
-  if (left && typeof left === "object" && Object.keys(left).length === 0) {
-    text = jsoncDelete(text, ["provider"]);
-  }
-  await writeFileAtomic(path, text, { mode: DEFAULT_FILE_MODE });
-  return `stripped the aiand provider from ${path}, which OpenCode does not read while XDG_CONFIG_HOME is set`;
-}
 
 type OpencodeProviderOptions = {
   npm: string;
@@ -346,7 +321,7 @@ async function enable(input: EnableInput): Promise<EnableResult> {
   // The prior on's model record is still live only when the file holds
   // exactly what it wrote; after an `off` or a hand edit the record is stale
   // and must not be carried forward.
-  const prior = await getAddedState<OpencodeRecord>(OPENCODE_ID);
+  const prior = await recordFor(path);
   const priorModel = prior?.model;
   const priorLive = priorModel !== undefined && existingModel === priorModel;
   // `recorded` is what added.json carries after this run; `modelWritten` is
@@ -399,6 +374,7 @@ async function enable(input: EnableInput): Promise<EnableResult> {
     previousMode,
     providerAiand: withoutApiKey(providerBlock),
     created: created || (prior?.created === true && marked),
+    configPath: path,
   });
 
   // Report the model now in effect: what this run wrote, else what the
@@ -460,7 +436,7 @@ export const opencodeAdapter: AgentAdapter = {
   enable,
   async disable(): Promise<DisableResult> {
     // A pre-XDG config of ours goes first: the current file may be empty.
-    const legacy = await stripLegacyConfig();
+    const legacy = await stripLegacyConfig(OPENCODE_PROVIDER_ID, hasOwnershipMarker);
     const legacyResult: DisableResult = legacy
       ? { stripped: true, notes: [legacy] }
       : { stripped: false };
@@ -482,7 +458,7 @@ export const opencodeAdapter: AgentAdapter = {
       return legacyResult;
     }
 
-    const added = await getAddedState<OpencodeRecord>(OPENCODE_ID);
+    const added = await recordFor(path);
     const notes: string[] = legacy ? [legacy] : [];
     let text = raw;
     let stripped = legacy !== undefined;
@@ -610,8 +586,13 @@ export const opencodeAdapter: AgentAdapter = {
       env: {
         OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
       },
+      // The launcher strips --server before the spawn, so --standalone is
+      // chosen from the args as they will be.
       ...(v2
-        ? { args: standaloneArgs(input.args ?? []), stripPassthroughFlags: ["--server"] }
+        ? {
+            args: standaloneArgs(withoutServer(input.args ?? [])),
+            stripPassthroughFlags: ["--server"],
+          }
         : {}),
       cleanup: async () => {
         await rm(dir, { recursive: true, force: true });

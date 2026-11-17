@@ -14,7 +14,8 @@ breaking changes while the command surface settles.
   opencode` then wires the config and tells you to open the app; it never
   launches the app. `aiand opencode status` and `aiand status` list the
   terminal program and the desktop app separately, and `--help` says which
-  of the two each command affects.
+  of the two each command affects. `aiand run-agent opencode` with only the app
+  installed stops with that message, before any sign-in.
 
 ### Fixed
 
@@ -26,7 +27,8 @@ breaking changes while the command surface settles.
 - `aiand opencode on` writes to `$XDG_CONFIG_HOME/opencode/opencode.json`
   when `XDG_CONFIG_HOME` is set, where OpenCode reads it. It used to write
   to `~/.config/opencode` regardless, so OpenCode never saw it. `off` also
-  removes an ai& provider left in the old place.
+  removes an ai& provider left in the old place, keeping that file's
+  permissions.
 
 ### Changed
 

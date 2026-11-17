@@ -95,16 +95,11 @@ export function terminalMajor(bin: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-/** 2.x subcommands that take `--standalone`; the others refuse it. */
-const STANDALONE_SUBCOMMANDS = new Set([
-  "run",
-  "mini",
-  "api",
-  "models",
-  "stats",
-  "session",
-  "auth",
-]);
+/**
+ * 2.x subcommands that refuse `--standalone` (`<cmd> --help`, 2.3.0). The
+ * TUI and `run`, `mini`, `api`, `models`, `stats`, `session` and `auth`
+ * take it, as does a directory for the TUI.
+ */
 const OTHER_SUBCOMMANDS = new Set([
   "acp",
   "mcp",
@@ -115,6 +110,53 @@ const OTHER_SUBCOMMANDS = new Set([
   "update",
   "uninstall",
 ]);
+
+/**
+ * 2.x options that take a value as the next argument (`opencode --help`,
+ * `opencode run --help`, 2.3.0). Their value is never the subcommand.
+ */
+const VALUE_FLAGS = new Set([
+  "--server",
+  "--session",
+  "-s",
+  "--prompt",
+  "--model",
+  "-m",
+  "--agent",
+  "--format",
+  "--file",
+  "-f",
+  "--title",
+  "--log-level",
+  "--completions",
+]);
+
+/** The args without `--server <url>` / `--server=<url>`, as the launcher strips them. */
+export function withoutServer(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] as string;
+    if (arg === "--server") {
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith("-")) i += 1;
+      continue;
+    }
+    if (arg.startsWith("--server=")) continue;
+    out.push(arg);
+  }
+  return out;
+}
+
+/** The first positional argument, skipping the values of known options. */
+function firstPositional(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] as string;
+    if (arg === "--") return args[i + 1];
+    if (!arg.startsWith("-")) return arg;
+    if (VALUE_FLAGS.has(arg)) i += 1;
+  }
+  return undefined;
+}
 
 /**
  * `--standalone` for a 2.x launch whose routing rides OPENCODE_CONFIG_CONTENT
@@ -128,11 +170,9 @@ export function standaloneArgs(args: string[]): string[] {
   ) {
     return [];
   }
-  const first = args.find((arg) => !arg.startsWith("-"));
+  // The first positional is a subcommand, or the directory the TUI opens;
+  // only the subcommands that refuse --standalone get nothing.
+  const first = firstPositional(args);
   if (first !== undefined && OTHER_SUBCOMMANDS.has(first)) return [];
-  if (first !== undefined && !STANDALONE_SUBCOMMANDS.has(first) && args[0] !== first) {
-    // A positional after flags we cannot parse: stay out of the way.
-    return [];
-  }
   return ["--standalone"];
 }
