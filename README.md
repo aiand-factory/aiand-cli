@@ -350,7 +350,12 @@ updates Open WebUI itself. You pick the ai& model in each chat.
 Everyone on the instance who can use these models spends your organization's
 credit. `off` removes only the connection aiand added; one whose key you
 changed is yours and stays. `off`, logout and key rotation need
-`OPENWEBUI_API_KEY` set to reach the instance, and say so when it is not.
+`OPENWEBUI_API_KEY` set to reach the instance, and fail when it is not, so
+the ai& key is never left behind silently. If you can no longer reach the
+instance, `aiand openwebui off --force` forgets it; then remove the
+connection there and revoke the key in the ai& console. `on` turns on Open
+WebUI's OpenAI API if it was off, and `off` turns it back off unless you
+added connections since.
 `aiand restore openwebui --force` puts back the connection list from before
 `on`; aiand keeps no Open WebUI key on disk, so each restored connection
 keeps the key the instance holds now.

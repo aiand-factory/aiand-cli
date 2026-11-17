@@ -62,6 +62,12 @@ type OpenWebUIRecord = {
   keySha256: string;
   /** `on` turned ENABLE_OPENAI_API on; `off` hands that back. */
   enabledApi?: boolean;
+  /**
+   * The connection URLs (never keys) when `on` turned the API on. `off`
+   * turns it back off only while no connection outside this list exists:
+   * one the user added since would go dark with it.
+   */
+  previousUrls?: string[];
 };
 
 /** The pre-`on` capture: every key literal left out. */
@@ -92,6 +98,9 @@ function asRecord(value: unknown): OpenWebUIRecord | null {
     baseUrl: raw.baseUrl,
     keySha256: raw.keySha256,
     enabledApi: raw.enabledApi === true,
+    ...(Array.isArray(raw.previousUrls) && raw.previousUrls.every((url) => typeof url === "string")
+      ? { previousUrls: raw.previousUrls as string[] }
+      : {}),
   };
 }
 
@@ -179,9 +188,11 @@ async function enable(input: EnableInput): Promise<EnableResult> {
       ? appendConnection(current, baseUrl, input.apiKey, aiandConnectionConfig())
       : replaceKey(current, ours, input.apiKey, baseUrl);
   let enabledApi = ours !== -1 && record?.enabledApi === true;
+  let previousUrls = enabledApi ? record?.previousUrls : undefined;
   if (!next.ENABLE_OPENAI_API) {
     next = { ...next, ENABLE_OPENAI_API: true };
     enabledApi = true;
+    previousUrls = current.OPENAI_API_BASE_URLS;
   }
 
   const stored = await writeOpenAIConfig(instance, key, next);
@@ -192,6 +203,7 @@ async function enable(input: EnableInput): Promise<EnableResult> {
     baseUrl,
     keySha256,
     enabledApi,
+    ...(previousUrls ? { previousUrls } : {}),
   } satisfies OpenWebUIRecord);
   if (findOurs(stored, baseUrl, keySha256) === -1) {
     throw new CliError(`Open WebUI at ${instance} did not keep the ai& connection.`, {
@@ -216,12 +228,16 @@ async function disable(input?: DisableInput): Promise<DisableResult> {
   const key = adminKey();
   if (!key) {
     const message = `${ADMIN_KEY_ENV} is not set, so the ai& key is still on Open WebUI at ${record.instanceUrl}.`;
-    // Logout prints only a thrown error: a silent skip would leave a live
-    // key on a shared server. The record stays so a later off finds it.
+    // A silent skip would leave a live key on a shared server, and let
+    // uninstall carry on past it. Logout calls disable directly; `off`
+    // reaches here only through offGuard with --force, which forgets.
     if (input?.loggingOut !== undefined) throw new CliError(message, { hint: ADMIN_KEY_HINT });
+    await clearAddedState(OPENWEBUI_ID);
     return {
       stripped: false,
-      notes: [`${message} Set it and run \`aiand openwebui off\` again.`],
+      notes: [
+        `${message} aiand forgot it (--force). Remove the ai& connection in Admin › Settings › Connections, and revoke the key in the ai& console.`,
+      ],
     };
   }
 
@@ -240,11 +256,21 @@ async function disable(input?: DisableInput): Promise<DisableResult> {
   }
 
   let next = removeConnection(current, ours);
-  // Hand ENABLE_OPENAI_API back only when `on` flipped it and it is still on.
-  if (record.enabledApi && next.ENABLE_OPENAI_API) next = { ...next, ENABLE_OPENAI_API: false };
+  const notes: string[] = [];
+  // Hand ENABLE_OPENAI_API back only when `on` flipped it, it is still on,
+  // and no connection appeared since: that one would go dark with it.
+  if (record.enabledApi && next.ENABLE_OPENAI_API) {
+    const before = record.previousUrls ?? [];
+    const added = next.OPENAI_API_BASE_URLS.filter(
+      (url) => !before.some((old) => sameUrl(old, url)),
+    );
+    if (added.length === 0) next = { ...next, ENABLE_OPENAI_API: false };
+    else
+      notes.push("left the OpenAI API on because connections were added after aiand turned it on");
+  }
   await writeOpenAIConfig(record.instanceUrl, key, next);
   await clearAddedState(OPENWEBUI_ID);
-  return { stripped: true };
+  return { stripped: true, ...(notes.length > 0 ? { notes } : {}) };
 }
 
 async function refreshKey(input: { apiKey: string; previousKey?: string }): Promise<boolean> {
@@ -358,6 +384,29 @@ function knownInstance(): string | undefined {
   return adminKey() ? DEFAULT_OPENWEBUI_URL : undefined;
 }
 
+/**
+ * `off` without the admin key cannot reach the instance. It refuses unless
+ * --force, which forgets the record and says the key is still there.
+ */
+async function offGuard({ force }: { force: boolean }): Promise<void> {
+  const record = await loadRecord();
+  if (!record || adminKey() || force) return;
+  throw new CliError(
+    `${ADMIN_KEY_ENV} is not set, so aiand cannot remove the ai& key from Open WebUI at ${record.instanceUrl}.`,
+    {
+      hint: `${ADMIN_KEY_HINT}\nIf you can no longer reach that instance, \`aiand openwebui off --force\` forgets it; then revoke the key in the ai& console.`,
+    },
+  );
+}
+
+/** A capture of another instance is not this one's: `on` takes a fresh one. */
+async function remoteSnapshotCovers(snapshot: object): Promise<boolean> {
+  const instance = (snapshot as { instanceUrl?: unknown }).instanceUrl;
+  return (
+    typeof instance === "string" && normalizeInstanceUrl(instance) === (await targetInstance())
+  );
+}
+
 async function openConfigured(): Promise<OpenTarget> {
   const record = await loadRecord();
   return {
@@ -406,6 +455,8 @@ export const openwebuiAdapter: AgentAdapter = {
   disable,
   refreshKey,
   snapshotRemote,
+  remoteSnapshotCovers,
+  offGuard,
   restore,
   openConfigured,
 };

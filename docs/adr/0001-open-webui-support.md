@@ -72,12 +72,21 @@ the admin API.
   would not survive an edit. This is the same approach as the Copilot app's
   recorded row id.
 - **off:** remove exactly that connection. A connection whose key the user
-  changed is now theirs, so `off` leaves it and says so.
+  changed is now theirs, so `off` leaves it and says so. `on` turns
+  `ENABLE_OPENAI_API` on if it was off; `off` turns it back off only when no
+  connection has been added since, because a connection added since would
+  stop working too.
+- **off without the admin credential fails.** Otherwise `init --off` and
+  uninstall would carry on and leave a live key on a shared server.
+  `off --force` forgets the record when the instance is out of reach, and
+  says the key is still on the instance and should be revoked.
 - **status:** read the live list from the instance. This never trusts the
   record alone. With no record there is no network call. With a record but no
   `OPENWEBUI_API_KEY`, `status` reports that it cannot check.
 - **Snapshot and restore:** before the first write, the instance's OpenAI
-  config is captured with every key literal removed. `restore --force` puts
+  config is captured with every key literal removed (and every setting named
+  like a key, token, secret, password or header). A capture of a different
+  instance is replaced when `on` targets a new one. `restore --force` puts
   back the URL list, per-connection settings and the enabled flag. For each
   restored connection it reuses the key the instance holds now. No
   third-party key is ever written to disk.

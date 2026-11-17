@@ -331,7 +331,19 @@ describe("aiand openwebui status", () => {
 });
 
 describe("aiand openwebui off", () => {
-  test("removes only ours, re-indexes later settings, and hands the API flag back", async () => {
+  test("hands the API flag back when on turned it on and nothing was added", async () => {
+    const state = freshState();
+    seedTwoUserConnections(false);
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    assert.equal(owui.config.ENABLE_OPENAI_API, true);
+    assert.deepEqual(added(state).previousUrls, [USER_A, USER_B], "URLs only, never keys");
+    assert.doesNotMatch(readFileSync(addedPath(state), "utf8"), /sk-/);
+    assert.equal((await cli(["openwebui", "off"], state)).code, 0);
+    assert.deepEqual(owui.config.OPENAI_API_BASE_URLS, [USER_A, USER_B]);
+    assert.equal(owui.config.ENABLE_OPENAI_API, false, "on flipped it, so off hands it back");
+  });
+
+  test("removes only ours, re-indexes later settings, and keeps the API on for a connection added since", async () => {
     const state = freshState();
     seedTwoUserConnections(false);
     assert.equal((await cli(["openwebui", "on"], state)).code, 0);
@@ -341,7 +353,10 @@ describe("aiand openwebui off", () => {
 
     const { code, stdout } = await cli(["openwebui", "off"], state);
     assert.equal(code, 0);
-    assert.match(stdout, /Open WebUI is off\./);
+    assert.match(
+      stdout,
+      /left the OpenAI API on because connections were added after aiand turned it on/,
+    );
     assert.deepEqual(owui.config.OPENAI_API_BASE_URLS, [
       USER_A,
       USER_B,
@@ -353,7 +368,7 @@ describe("aiand openwebui off", () => {
       1: CONFIG_B,
       2: { enable: true, prefix_id: "c" },
     });
-    assert.equal(owui.config.ENABLE_OPENAI_API, false, "on flipped it, so off hands it back");
+    assert.equal(owui.config.ENABLE_OPENAI_API, true, "the connection added since stays live");
     assert.equal(existsSync(addedPath(state)), false);
   });
 
@@ -378,17 +393,19 @@ describe("aiand openwebui off", () => {
     assert.equal(existsSync(addedPath(state)), false);
   });
 
-  test("without OPENWEBUI_API_KEY, off keeps the record and says how to finish", async () => {
+  test("without OPENWEBUI_API_KEY, off fails and keeps the record", async () => {
+    // A live key on a shared server must stop `off` (and so uninstall),
+    // never pass as done.
     const state = freshState();
     seedTwoUserConnections();
     assert.equal((await cli(["openwebui", "on"], state)).code, 0);
     owui.requests = [];
-    const { code, stdout } = await cli(["openwebui", "off"], state, {
+    const { code, stderr } = await cli(["openwebui", "off"], state, {
       OPENWEBUI_API_KEY: undefined,
     });
-    assert.equal(code, 0);
-    assert.match(stdout, /OPENWEBUI_API_KEY is not set, so the ai& key is still on Open WebUI/);
-    assert.match(stdout, /aiand openwebui off/);
+    assert.equal(code, 1);
+    assert.match(stderr, /OPENWEBUI_API_KEY is not set, so aiand cannot remove the ai& key/);
+    assert.match(stderr, /aiand openwebui off --force/);
     assert.equal(owui.requests.length, 0);
     assert.equal(added(state).keySha256, sha(K1), "the record stays for a later off");
     assert.equal(owui.config.OPENAI_API_KEYS[2], K1);
@@ -397,6 +414,22 @@ describe("aiand openwebui off", () => {
     const later = await cli(["openwebui", "off"], state, { OPENWEBUI_URL: undefined });
     assert.equal(later.code, 0);
     assert.deepEqual(owui.config.OPENAI_API_BASE_URLS, [USER_A, USER_B]);
+  });
+
+  test("off --force without OPENWEBUI_API_KEY forgets the instance and says the key is still there", async () => {
+    const state = freshState();
+    seedTwoUserConnections();
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    owui.requests = [];
+    const { code, stdout } = await cli(["openwebui", "off", "--force"], state, {
+      OPENWEBUI_API_KEY: undefined,
+    });
+    assert.equal(code, 0);
+    assert.match(stdout, /the ai& key is still on Open WebUI/);
+    assert.match(stdout, /revoke the key/);
+    assert.equal(owui.requests.length, 0);
+    assert.equal(existsSync(addedPath(state)), false);
+    assert.equal(owui.config.OPENAI_API_KEYS[2], K1, "nothing reached the instance");
   });
 });
 
@@ -446,6 +479,20 @@ describe("aiand restore openwebui --force", () => {
     const again = await cli(["restore", "openwebui", "--force"], state);
     assert.equal(again.code, 1);
     assert.match(again.stderr, /No snapshot found for Open WebUI/);
+  });
+
+  test("on against another instance replaces the snapshot, so restore targets it", async () => {
+    const state = freshState();
+    seedTwoUserConnections();
+    assert.equal((await cli(["openwebui", "on"], state)).code, 0);
+    assert.equal((await cli(["openwebui", "off"], state)).code, 0);
+    // The same double under another name is another instance to aiand.
+    const other = owuiUrl.replace("127.0.0.1", "localhost");
+    seed({ enable: true, urls: [USER_B], keys: [""], configs: { 0: CONFIG_B } });
+    assert.equal((await cli(["openwebui", "on"], state, { OPENWEBUI_URL: other })).code, 0);
+    const manifest = JSON.parse(readFileSync(join(snapshotDir(state), "latest.json"), "utf8"));
+    assert.equal(manifest.remote.instanceUrl, other);
+    assert.deepEqual(manifest.remote.urls, [USER_B]);
   });
 });
 

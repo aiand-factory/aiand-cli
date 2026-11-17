@@ -4,7 +4,13 @@ import { ApiError, CliError, SYNTHETIC_STATUS } from "../cli/errors.js";
 import { resolveProfile } from "../config.js";
 import { getCatalog, resolveDefault, validateCatalogModel, visionLabel } from "./catalog.js";
 import { notInstalledError } from "./launch.js";
-import { discardSnapshot, hasSnapshot, snapshotCovers, snapshotFiles } from "./snapshot.js";
+import {
+  discardSnapshot,
+  getRemoteSnapshot,
+  hasSnapshot,
+  snapshotCovers,
+  snapshotFiles,
+} from "./snapshot.js";
 import type { AgentAdapter } from "./types.js";
 
 /**
@@ -138,7 +144,11 @@ export async function agentOn(
   // other files (the managed file moved, e.g. a new CLAUDE_CONFIG_DIR) could
   // never restore this one, so it is replaced.
   let snapshottedThisCall = false;
-  if (!probe.active && !(await snapshotCovers(adapter.id, managed))) {
+  const existingRemote = adapter.snapshotRemote ? await getRemoteSnapshot(adapter.id) : null;
+  const remoteCovered =
+    !adapter.snapshotRemote ||
+    (existingRemote !== null && ((await adapter.remoteSnapshotCovers?.(existingRemote)) ?? true));
+  if (!probe.active && (!(await snapshotCovers(adapter.id, managed)) || !remoteCovered)) {
     // A remote config (no managed files) is captured by the adapter itself,
     // before discarding anything: a capture that fails leaves no half-state.
     const remote = adapter.snapshotRemote ? await adapter.snapshotRemote() : undefined;

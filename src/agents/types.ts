@@ -118,6 +118,10 @@ export type AgentAdapter = {
   // here before the first write. agentOn stores it in the snapshot manifest
   // under the same "first capture stays authoritative" rule as files. It
   // must hold no key literal: the snapshot is written to disk.
+  remoteSnapshotCovers?(snapshot: object): Promise<boolean>;
+  // ^ Whether an existing remote capture is of what `on` targets now (the
+  // same Open WebUI instance); one that is not is replaced, as a file
+  // snapshot of a moved config is.
   restore?(snapshot: object): Promise<string[]>;
   // ^ `restore --force` for a remote config: put back what snapshotRemote
   // captured. Resolves warnings to print.
