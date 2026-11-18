@@ -155,8 +155,11 @@ export const jouzuAdapter: AgentAdapter = {
     // another tool, and `open` launches `jouzu`.
     return detectBinary(JOUZU_BIN);
   },
+  carriesWiring: jouzu.carriesWiring,
   managedFiles: jouzu.managedFiles,
   probe: jouzu.probe,
+  bakedBaseUrl: jouzu.bakedBaseUrl,
+  enableGuard: jouzu.enableGuard,
   enable: jouzu.enable,
   disable: jouzu.disable,
   refreshKey: jouzu.refreshKey,

@@ -245,6 +245,54 @@ describe("jouzu adapter", () => {
   });
 });
 
+describe("jouzu carries every adapter's 0.8.0 surface", () => {
+  test("carriesWiring() knows Pi's marker in Jouzu's auth.json, and nothing else", async () => {
+    await jouzuAdapter.enable(enableInput());
+    assert.equal(jouzuAdapter.carriesWiring(readFileSync(authPath(), "utf8")), true);
+    assert.equal(jouzuAdapter.carriesWiring('{ "aiand": { "managedBy" :  "aiand" } }'), true);
+    assert.equal(jouzuAdapter.carriesWiring(readFileSync(settingsPath(), "utf8")), false);
+    assert.equal(jouzuAdapter.carriesWiring('{"shisa":{"type":"api_key","key":"k"}}'), false);
+  });
+
+  test("bakedBaseUrl(): reads back the https://api.aiand.com/v1 `on` baked, and nothing once off", async () => {
+    assert.equal(await jouzuAdapter.bakedBaseUrl(), undefined, "nothing wired yet");
+    await jouzuAdapter.enable(enableInput());
+    assert.equal(await jouzuAdapter.bakedBaseUrl(), "https://api.aiand.com/v1");
+    await jouzuAdapter.disable();
+    assert.equal(await jouzuAdapter.bakedBaseUrl(), undefined, "off: nothing baked");
+  });
+
+  test("enableGuard(): refuses a second dir while the first holds the key, naming JOUZU_HOME", async () => {
+    const first = join(process.env.AIAND_HOME, "first");
+    await withEnv({ JOUZU_HOME: first }, async () => {
+      await jouzuAdapter.enable(enableInput());
+      await jouzuAdapter.enableGuard({ force: false });
+    });
+    await assert.rejects(
+      () => jouzuAdapter.enableGuard({ force: false }),
+      (error) =>
+        error instanceof CliError &&
+        error.message === `Jouzu is already wired through ${join(first, "agent")}.` &&
+        /aiand jouzu off first, then aiand jouzu on for the new JOUZU_HOME/.test(error.hint),
+    );
+    await jouzuAdapter.disable();
+    await jouzuAdapter.enableGuard({ force: false });
+  });
+
+  test("on refuses to write the key into a git work tree, and writes nothing", async () => {
+    const repo = join(process.env.AIAND_HOME, "dotfiles");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    await withEnv({ JOUZU_HOME: join(repo, "jouzu") }, async () => {
+      mkdirSync(join(repo, "jouzu", "agent"), { recursive: true });
+      await assert.rejects(
+        () => jouzuAdapter.enable(enableInput()),
+        /Refusing to write your ai& key/,
+      );
+      for (const path of jouzuAdapter.managedFiles()) assert.equal(existsSync(path), false, path);
+    });
+  });
+});
+
 describe("jouzu detection and paths", () => {
   test("a `jz` alone belongs to another tool: not Jouzu", async () => {
     const bin = join(process.env.AIAND_HOME, "bin-jz");
