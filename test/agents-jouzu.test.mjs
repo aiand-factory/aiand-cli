@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 import test, { beforeEach, describe } from "node:test";
 import {
   enableInput as baseEnableInput,
@@ -281,6 +281,25 @@ describe("jouzu detection and paths", () => {
     assert.equal(at("linux", { XDG_CONFIG_HOME: "/xdg" }, "/scoped"), "/scoped/.config/jouzu");
     assert.equal(at("win32", { APPDATA: "D:\\Roam" }, "C:\\s"), "C:\\s\\AppData\\Roaming\\Jouzu");
   });
+
+  test("the root: ~ only as a whole path segment, blank variables read as unset", () => {
+    const at = (platform, env) =>
+      resolveJouzuRoot({ platform, env, home: platform === "win32" ? "C:\\Users\\u" : "/hm" });
+    // `~cfg` is a relative dir named ~cfg, not the home.
+    assert.equal(
+      at("linux", { XDG_CONFIG_HOME: "~cfg" }),
+      posix.join(posix.resolve("~cfg"), "jouzu"),
+    );
+    assert.equal(at("win32", { APPDATA: "~" }), "C:\\Users\\u\\Jouzu");
+    assert.equal(at("linux", { XDG_CONFIG_HOME: "  " }), "/hm/.config/jouzu");
+    assert.equal(at("win32", { APPDATA: "  " }), "C:\\Users\\u\\AppData\\Roaming\\Jouzu");
+    assert.equal(at("linux", { JOUZU_HOME: "  ", XDG_CONFIG_HOME: "/xdg" }), "/xdg/jouzu");
+    // macOS reads neither variable.
+    assert.equal(
+      at("darwin", { XDG_CONFIG_HOME: "/xdg", APPDATA: "/ad" }),
+      "/hm/Library/Application Support/Jouzu",
+    );
+  });
 });
 
 describe("jouzu beside pi", () => {
@@ -296,6 +315,30 @@ describe("jouzu beside pi", () => {
     assert.equal(readJson(join(piDir(), "auth.json")).aiand.key, "sk-pi");
     assert.ok(existsSync(join(process.env.AIAND_CONFIG_DIR, "snapshots", "pi", "added.json")));
     await piAdapter.disable();
+  });
+
+  test("off on Pi leaves Jouzu on, and each lists only its own files for restore", async () => {
+    mkdirSync(piDir(), { recursive: true });
+    await piAdapter.enable(enableInput({ apiKey: "sk-pi", model: "qwen/qwen3.8-27b" }));
+    await jouzuAdapter.enable(enableInput({ apiKey: "sk-jz" }));
+    const jouzuFiles = jouzuAdapter.managedFiles();
+    assert.deepEqual(jouzuFiles, [modelsPath(), authPath(), settingsPath()]);
+    const piFiles = piAdapter.managedFiles();
+    assert.ok(
+      piFiles.every((path) => path.startsWith(piDir())),
+      piFiles.join(", "),
+    );
+    await piAdapter.disable();
+    assert.equal((await piAdapter.probe()).active, false);
+    assert.equal((await jouzuAdapter.probe()).active, true, "jouzu stays on");
+    assert.equal(readJson(authPath()).aiand.key, "sk-jz");
+    assert.equal(readJson(settingsPath()).defaultModel, "zai-org/glm-5.3");
+    assert.deepEqual(await jouzuAdapter.openExtras({ args: [] }), {
+      args: ["--provider", "aiand", "--model", "zai-org/glm-5.3"],
+    });
+    assert.deepEqual(jouzuAdapter.managedFiles(), jouzuFiles);
+    await jouzuAdapter.disable();
+    assert.equal(readJson(authPath()).aiand, undefined);
   });
 });
 
@@ -344,6 +387,14 @@ describe("jouzu open extras", () => {
     }
   });
 
+  test("a Pi command word counts only as the first argument", async () => {
+    await jouzuAdapter.enable(enableInput());
+    const wired = { args: ["--provider", "aiand", "--model", "zai-org/glm-5.3"] };
+    // Here `list` and `install` are prompt words, so the run still gets the model.
+    assert.deepEqual(await jouzuAdapter.openExtras({ args: ["-p", "list", "the files"] }), wired);
+    assert.deepEqual(await jouzuAdapter.openExtras({ args: ["explain", "install"] }), wired);
+  });
+
   test("`--` only ends option parsing: the injected flags still go in front", async () => {
     await jouzuAdapter.enable(enableInput());
     const wired = { args: ["--provider", "aiand", "--model", "zai-org/glm-5.3"] };
@@ -369,5 +420,42 @@ describe("jouzu open extras", () => {
     assert.ok(readJson(modelsPath()).providers.aiand);
     await jouzuAdapter.disable();
     assert.equal(readJson(authPath()).aiand, undefined);
+  });
+
+  test("on --model native names nothing while the default provider is someone else's", async () => {
+    writeJson(settingsPath(), { defaultProvider: "shisa", defaultModel: "shisa/x" });
+    await jouzuAdapter.enable(enableInput({ model: "native" }));
+    assert.deepEqual(readJson(settingsPath()), {
+      defaultProvider: "shisa",
+      defaultModel: "shisa/x",
+    });
+    assert.deepEqual(await jouzuAdapter.openExtras({ args: [] }), {});
+  });
+
+  test("on --model native with no earlier on leaves a defaultProvider of aiand alone", async () => {
+    writeJson(settingsPath(), { defaultProvider: "aiand", defaultModel: "zai-org/glm-5.3" });
+    const before = readFileSync(settingsPath());
+    await jouzuAdapter.enable(enableInput({ model: "native" }));
+    assert.equal(readFileSync(settingsPath()).equals(before), true);
+  });
+
+  test("on, a hand-picked model, then on --model native: the pick stays", async () => {
+    await jouzuAdapter.enable(enableInput());
+    const settings = readJson(settingsPath());
+    settings.defaultModel = "qwen/qwen3.8-27b";
+    writeJson(settingsPath(), settings);
+    await jouzuAdapter.enable(enableInput({ model: "native" }));
+    assert.deepEqual(readJson(settingsPath()), { defaultModel: "qwen/qwen3.8-27b" });
+  });
+
+  test("after on --model native, off leaves a model the user picked since", async () => {
+    writeJson(settingsPath(), { defaultModel: "gone/model" });
+    await jouzuAdapter.enable(enableInput());
+    await jouzuAdapter.enable(enableInput({ model: "native" }));
+    assert.deepEqual(readJson(settingsPath()), { defaultModel: "gone/model" });
+    // The user then picks the model the first on wrote: it is theirs now.
+    writeJson(settingsPath(), { defaultModel: "zai-org/glm-5.3" });
+    await jouzuAdapter.disable();
+    assert.deepEqual(readJson(settingsPath()), { defaultModel: "zai-org/glm-5.3" });
   });
 });
