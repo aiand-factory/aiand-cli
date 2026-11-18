@@ -658,6 +658,56 @@ describe("logout --all reports the overlays it could not deal with (serial)", {
     }
   });
 
+  /**
+   * A crashed Hermes session's overlay whose store shim still points into it
+   * after the sweep's restore: the snapshot it would restore from names the
+   * overlay too, so putting it back cannot clear the pointer.
+   */
+  const plantHeldHermesOverlay = () => {
+    const overlay = plantOverlay(DEAD_PID, { name: "aiand-hermes-" });
+    const shims = mkdtempSync(join(dir, "held-shims-"));
+    const pointing = `#!/bin/sh\nexec ${overlay}/tools/python3\n`;
+    writeFileSync(join(shims, "hermes"), pointing, { mode: 0o755 });
+    writeFileSync(
+      join(overlay, ".aiand-overlay-shims"),
+      JSON.stringify({
+        dir: shims,
+        entries: { hermes: { mode: 0o755, body: Buffer.from(pointing).toString("base64") } },
+      }),
+    );
+    return { overlay, shims };
+  };
+
+  test("an overlay a Hermes shim still points into is kept and reported, and the run is not complete", async () => {
+    await seedMachine();
+    const { overlay, shims } = plantHeldHermesOverlay();
+    try {
+      const report = JSON.parse(cliStdout(await runAll({ json: true, keepRemote: true })));
+      assert.equal(existsSync(join(overlay, "auth.json")), true, "kept, so hermes still runs");
+      assert.deepEqual(report.overlays.failed, [
+        { dir: overlay, reason: "a Hermes shim still points into it" },
+      ]);
+      assert.equal(report.complete, false);
+      assert.equal(process.exitCode, 1);
+    } finally {
+      rmSync(overlay, { recursive: true, force: true });
+      rmSync(shims, { recursive: true, force: true });
+    }
+  });
+
+  test("the text report says to reinstall Hermes, not to delete the overlay by hand", async () => {
+    await seedMachine();
+    const { overlay, shims } = plantHeldHermesOverlay();
+    try {
+      const text = cliStdout(await runAll({ keepRemote: true }));
+      assert.match(text, /Kept the session overlay .*aiand-hermes-.*Reinstall Hermes/);
+      assert.doesNotMatch(text, /aiand-hermes-.*Delete it by hand/);
+    } finally {
+      rmSync(overlay, { recursive: true, force: true });
+      rmSync(shims, { recursive: true, force: true });
+    }
+  });
+
   /** An older aiand's overlay (no marker) and a foreign aiand-* folder, both holding a key the machine knows. */
   const plantUnmarked = () => {
     const older = mkdtempSync(join(tmpdir(), "aiand-claude-"));

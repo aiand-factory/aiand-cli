@@ -70,6 +70,9 @@ export type OverlaySweep = {
   failed: { dir: string; reason: string }[];
 };
 
+/** Why a sweep kept an overlay that deleting would break the user's own `hermes` over. */
+export const HERMES_SHIM_HELD = "a Hermes shim still points into it";
+
 const reasonOf = (error: unknown): string =>
   (error as NodeJS.ErrnoException)?.code ?? (error as Error)?.message ?? String(error);
 
@@ -115,7 +118,7 @@ export async function sweepOverlays({
       // its overlay: put them back first, and keep the overlay while any
       // still does, or the user's own `hermes` is left on a deleted path.
       if (!(await restoreShimsFromOverlay(dir))) {
-        result.failed.push({ dir, reason: "a Hermes shim still points into it" });
+        result.failed.push({ dir, reason: HERMES_SHIM_HELD });
         continue;
       }
       await rm(dir, { recursive: true, force: true });

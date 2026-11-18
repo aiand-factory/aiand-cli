@@ -50,7 +50,9 @@ breaking changes while the command surface settles.
   slow revoke ran is refused. Session folders it could not delete, a temp
   directory it could not read, and `aiand-*` folders from an older aiand that
   still hold a key (no marker, so it deletes nothing on a guess) are reported
-  and make the run incomplete, as is a revoke the server answered with an HTTP
+  and make the run incomplete, and so is a session folder kept because a
+  Hermes shim still points into it (the report says to reinstall Hermes
+  rather than delete it by hand), as is a revoke the server answered with an HTTP
   status, which `--json` gives as `http_status`. An agent it could not clean up (its
   `off` failed, or its config still holds a key) keeps its snapshot and the
   record `on` left, so running `aiand <agent> off` once the file is fixed

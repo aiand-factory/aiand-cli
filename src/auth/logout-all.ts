@@ -2,7 +2,7 @@ import { lstat, readFile, realpath, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
-import { findUnmarkedKeyDirs, sweepOverlays } from "../agents/overlays.js";
+import { findUnmarkedKeyDirs, HERMES_SHIM_HELD, sweepOverlays } from "../agents/overlays.js";
 import { AGENTS, wiringCheckFor } from "../agents/registry.js";
 import { scrubSnapshotKeys } from "../agents/snapshot.js";
 import { revokeTokens } from "../api/device.js";
@@ -467,6 +467,12 @@ export async function logoutAll(opts: LogoutAllOptions = {}): Promise<void> {
     );
   }
   for (const { dir, reason } of overlays.failed) {
+    if (reason === HERMES_SHIM_HELD) {
+      out(
+        `  Kept the session overlay ${safeLine(dir)}: a Hermes shim still points into it, and deleting it would break your hermes command. Reinstall Hermes, then run aiand logout --all again.`,
+      );
+      continue;
+    }
     out(
       `  Could not delete the session overlay ${safeLine(dir)} (${safeLine(reason)}); it may still hold your key. Delete it by hand.`,
     );

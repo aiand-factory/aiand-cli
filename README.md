@@ -231,7 +231,9 @@ It asks first; off a terminal, pass `--force`. Then it:
 - removes ai& from every coding agent, whichever profile wired it, and checks
   that no ai& key is left in their config files;
 - deletes leftover session files that a crashed `aiand run-agent` left in the
-  temp directory;
+  temp directory, except one a Hermes shim still points into: deleting it
+  would break your `hermes` command, so it is reported, and goes on a later
+  run once Hermes is reinstalled;
 - deletes every stored key, OS keychain entries included, and `~/.config/aiand`
   itself: profiles, settings and snapshots.
 
