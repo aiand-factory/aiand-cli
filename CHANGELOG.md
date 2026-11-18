@@ -41,7 +41,10 @@ breaking changes while the command surface settles.
   `config.json` has aiand's `profile` and `profiles`). An empty marker, or one
   copied from another install, vouches for nothing, so an `AIAND_CONFIG_DIR`
   pointed at `~/.docker` or a project folder is left whole, even after a cache
-  write into it, and a `locks` or `snapshots` folder
+  write into it. Sign-in files (`credentials.json`, `secret-store.*`) need
+  that `config.json` beside them: the marker alone vouches only for caches,
+  so a directory holding another tool's `credentials.json` and no
+  `config.json` is refused, and says so. A `locks` or `snapshots` folder
   keeps whatever aiand did not put in it. The directory is checked again
   right before anything is deleted from it, so one swapped for a link while a
   slow revoke ran is refused. Session folders it could not delete, a temp

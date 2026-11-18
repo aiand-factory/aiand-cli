@@ -21,7 +21,7 @@ import {
   loadCredential,
   redactUrl,
 } from "../config.js";
-import { CONFIG_MARKER_FILE } from "../config-files.js";
+import { CONFIG_MARKER_FILE, holdsUnvouchedSignIn } from "../config-files.js";
 import { agentHome, pathIsInside } from "../fsutil.js";
 import { deleteSecret } from "../secrets.js";
 import {
@@ -92,6 +92,14 @@ async function wipeTarget(): Promise<string | null> {
     });
   }
   if (!(await provesAiandConfigDir(real))) {
+    if (await holdsUnvouchedSignIn(real)) {
+      throw new CliError(
+        `Refusing to delete from ${real}: it is not aiand's config directory, or a sign-in there never finished: it holds sign-in files but no config.json.`,
+        {
+          hint: `Sign-in files (credentials.json, secret-store.*) go only beside aiand's own config.json, one carrying the same id as ${CONFIG_MARKER_FILE}; aiand login writes both. If they are aiand's (a sign-in that stopped before config.json was written), run aiand login with AIAND_CONFIG_DIR set to it, then run aiand logout --all again; otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
+        },
+      );
+    }
     throw new CliError(`Refusing to delete from ${real}: it is not aiand's config directory.`, {
       hint: `aiand's own directory has a config.json with a profile and profiles, and a ${CONFIG_MARKER_FILE} file carrying the same id as that config.json. This one has neither, and a ${CONFIG_MARKER_FILE} file that is empty or copied from elsewhere proves nothing. If it really is aiand's, run aiand login with AIAND_CONFIG_DIR set to it, so aiand writes them, then run aiand logout --all again; otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
     });

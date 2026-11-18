@@ -76,6 +76,12 @@ afterEach(() => {
 const opencodePath = () => join(home, ".config", "opencode", "opencode.json");
 const claudePath = () => join(home, ".claude", "settings.json");
 
+/** What sign-in leaves behind: the credential, then the profile in config.json. */
+async function signIn(name, credential) {
+  await config.saveCredential(name, credential);
+  await config.updateProfile(name, {});
+}
+
 /** Two device-minted profiles and one pasted; `work` is wired but not active. */
 async function seedMachine() {
   await config.saveCredential("default", {
@@ -247,7 +253,7 @@ describe("logout --all (serial)", { concurrency: 1 }, () => {
 
   test("a hostile profile name never reaches the terminal as a control sequence", async () => {
     const name = "evil\x1b]52;c;QQ==\x07\x1b[31mred";
-    await config.saveCredential(name, {
+    await signIn(name, {
       access_token: "sk-evil-minted",
       refresh_token: "rt-evil",
       origin: "device",
@@ -305,7 +311,7 @@ describe("logout --all (serial)", { concurrency: 1 }, () => {
   });
 
   test("a revoke the server answers with an HTTP status names it; one it never answers does not", async () => {
-    await config.saveCredential("default", {
+    await signIn("default", {
       access_token: "sk-default-minted",
       refresh_token: "rt-default",
       origin: "device",
@@ -878,6 +884,64 @@ describe("logout --all only wipes a directory that proves it is aiand's (serial)
       await assert.rejects(() => logoutAll({ force: true }), /not aiand's/);
       assert.equal(readFileSync(join(other, "notes.txt"), "utf8"), "mine\n");
       assert.equal(existsSync(join(other, "config.json")), true);
+    });
+
+    test("a marker naming an id, beside foreign sign-in files and no config.json, deletes none of them", async () => {
+      const project = join(home, "project");
+      mkdirSync(project, { recursive: true });
+      writeFileSync(join(project, ".aiand-config"), `id: ${"ab".repeat(16)}\n`);
+      writeFileSync(join(project, "credentials.json"), "{}\n");
+      writeFileSync(join(project, "update-check.json"), "mine\n");
+      process.env.AIAND_CONFIG_DIR = project;
+      await assert.rejects(
+        () => logoutAll({ force: true }),
+        (error) => {
+          assert.match(error.message, /not aiand's config directory.*no config\.json/);
+          assert.match(error.hint, /aiand login/);
+          return true;
+        },
+      );
+      assert.equal(readFileSync(join(project, "credentials.json"), "utf8"), "{}\n");
+      assert.equal(readFileSync(join(project, "update-check.json"), "utf8"), "mine\n");
+      assert.deepEqual(state.revocations, []);
+    });
+
+    test("a cache write into a dir holding another tool's credentials.json drops no marker", async () => {
+      const project = join(home, "project");
+      mkdirSync(project, { recursive: true });
+      writeFileSync(join(project, "credentials.json"), "{}\n");
+      process.env.AIAND_CONFIG_DIR = project;
+      await writeFileAtomicIn(join(project, "model-catalog.json"));
+      assert.equal(existsSync(join(project, ".aiand-config")), false);
+      await assert.rejects(() => logoutAll({ force: true }), /not aiand's/);
+      assert.equal(readFileSync(join(project, "credentials.json"), "utf8"), "{}\n");
+    });
+
+    test("a signed-in install, sign-in files and caches included, is still wiped", async () => {
+      await signIn("default", {
+        access_token: "sk-default-minted",
+        refresh_token: "rt-default",
+        origin: "device",
+        bound_to: stubBinding(),
+      });
+      await writeFileAtomicIn(join(cfg, "update-check.json"));
+      assert.equal(existsSync(join(cfg, "credentials.json")), true);
+      const report = JSON.parse(cliStdout(await runAll({ json: true })));
+      assert.equal(report.config_dir.removed, true);
+      assert.equal(existsSync(cfg), false);
+    });
+
+    test("a signed-in install from before the marker is marked on its next write and wiped", async () => {
+      const old = join(home, "old-install");
+      mkdirSync(old, { recursive: true });
+      writeFileSync(join(old, "config.json"), '{"profile":"default","profiles":{"default":{}}}\n');
+      writeFileSync(join(old, "credentials.json"), "{}\n");
+      process.env.AIAND_CONFIG_DIR = old;
+      await writeFileAtomicIn(join(old, "model-catalog.json"));
+      assert.match(readFileSync(join(old, ".aiand-config"), "utf8"), /^id: [0-9a-f]{32}$/m);
+      const report = JSON.parse(cliStdout(await runAll({ json: true })));
+      assert.equal(report.config_dir.removed, true);
+      assert.equal(existsSync(old), false);
     });
 
     test("a dir aiand wrote only caches into, which has a marker and no config.json, is wiped", async () => {

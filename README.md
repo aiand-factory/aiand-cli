@@ -280,7 +280,9 @@ directory the first time it writes there, but only when the directory is new,
 empty, or holds nothing but aiand's own files (a cache write into `~/.docker`
 marks nothing). The file holds a random id that the directory's `config.json`
 records too, so an empty or copied one proves nothing; a directory from before
-that passes when its `config.json` holds a `profile` and `profiles`. Otherwise
+that passes when its `config.json` holds a `profile` and `profiles`. Sign-in
+files (`credentials.json`, `secret-store.*`) need that `config.json` beside
+them, since `.aiand-config` alone vouches only for caches. Otherwise
 it refuses before touching anything; run `aiand login` with `AIAND_CONFIG_DIR`
 set to the directory if it really is aiand's, so aiand writes them. Inside it,
 a `locks` or `snapshots` folder keeps any entry aiand did not put there. The
