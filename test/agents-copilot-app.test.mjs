@@ -189,13 +189,31 @@ describe("copilot-app adapter", () => {
     assert.equal(glm.wire_model, "zai-org/glm-5.3");
     assert.equal(glm.display_name, "zai-org/glm-5.3");
     assert.equal(glm.max_prompt_tokens, 128000);
-    assert.equal(glm.max_output_tokens, 128000);
+    assert.equal(glm.max_output_tokens, 32768, "the published output cap, not the context window");
     assert.equal(glm.wire_api_override, "completions");
     assert.deepEqual(JSON.parse(glm.supported_reasoning_efforts), []);
     const qwen = models.find((row) => row.model_id === "qwen/qwen3.8-27b");
     assert.deepEqual(JSON.parse(qwen.supported_reasoning_efforts), ["low", "high"]);
 
     assert.equal(rows("SELECT * FROM model_providers").length, 2, "foreign provider survives");
+  });
+
+  test("enable(): keeps the output cap below the context window, and NULL when unpublished", async () => {
+    // The gateway rejects a max_tokens at or above the context window, and the
+    // app sends max_output_tokens as max_tokens.
+    createAppDb();
+    const catalog = [
+      catalogModel("motif-technologies/motif-3", {
+        context_window: 262144,
+        max_output_tokens: 262144,
+      }),
+      catalogModel("zai-org/glm-5.3", { max_output_tokens: null }),
+    ];
+    await copilotAppAdapter.enable(enableInput({ catalog }));
+    const byId = Object.fromEntries(ourModels().map((row) => [row.model_id, row]));
+    assert.equal(byId["motif-technologies/motif-3"].max_output_tokens, 262143);
+    assert.equal(byId["motif-technologies/motif-3"].max_prompt_tokens, 262144);
+    assert.equal(byId["zai-org/glm-5.3"].max_output_tokens, null);
   });
 
   test("enable(): --model warns the app keeps its own pick; native stays quiet", async () => {

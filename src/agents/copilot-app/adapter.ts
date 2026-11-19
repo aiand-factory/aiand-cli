@@ -287,9 +287,13 @@ function copilotAppModels(input: EnableInput): CopilotAppModel[] {
   return input.catalog.map((model) => ({
     id: model.id,
     name: model.name,
-    // The catalog carries no separate output cap; mirror the context
-    // window, the cap the gateway enforces (opencode's policy).
     contextWindow: model.context_window,
+    // The app sends this as max_tokens, and the gateway rejects one at or
+    // above the context window, which a catalog cap can equal.
+    maxOutputTokens:
+      model.max_output_tokens === null
+        ? null
+        : Math.min(model.max_output_tokens, model.context_window - 1),
     // NULL hides the app's effort picker (live-app finding); an empty
     // JSON array is the honest "no efforts" answer.
     reasoningEfforts: JSON.stringify(model.reasoning_efforts ?? []),
