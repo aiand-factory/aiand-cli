@@ -174,8 +174,8 @@ export async function getApiModels(baseUrl: string): Promise<Record<string, Open
 }
 
 /**
- * Model has no output-token field, so limit.output mirrors context_window (the
- * cap the gateway enforces). Catalog prices are per 1M tokens, OpenCode's unit.
+ * limit.output mirrors context_window rather than the catalog's
+ * max_output_tokens. Catalog prices are per 1M tokens, OpenCode's unit.
  * `reasoning_options` is the key `/v1/api.json` already publishes. Session
  * launches do not fetch that map, so the same key carries the catalog levels.
  */
