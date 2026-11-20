@@ -43,13 +43,28 @@ breaking changes while the command surface settles.
   `config.json` has aiand's `profile` and `profiles`). An empty marker, or one
   copied from another install, vouches for nothing, so an `AIAND_CONFIG_DIR`
   pointed at `~/.docker` or a project folder is left whole, even after a cache
-  write into it, and a `locks` or `snapshots` folder
+  write into it. Sign-in files (`credentials.json`, `secret-store.*`) need
+  that `config.json` beside them: the marker alone vouches only for caches,
+  so a directory holding another tool's `credentials.json` and no
+  `config.json` is refused, and says so. If those files are aiand's (a
+  sign-in interrupted before `config.json` was written), it says to run
+  `aiand logout --profile <name>` there first, which revokes each key where
+  it was issued, since a new `aiand login` would replace the sign-in without
+  revoking it. Where there is no such `config.json`, or one whose id does not
+  match the marker's, a sign-in that records no issuer is sent nowhere:
+  `aiand logout` keeps it and points to the console and `--keep-remote`, and
+  its first use, `aiand config set` and `aiand config use` neither pin nor
+  bake it. aiand never rewrites a marker that names an id, so a later command
+  cannot make a mismatched pair agree; the refusal says to delete the marker
+  before signing in again. A `locks` or `snapshots` folder
   keeps whatever aiand did not put in it. The directory is checked again
   right before anything is deleted from it, so one swapped for a link while a
   slow revoke ran is refused. Session folders it could not delete, a temp
   directory it could not read, and `aiand-*` folders from an older aiand that
   still hold a key (no marker, so it deletes nothing on a guess) are reported
-  and make the run incomplete, as is a revoke the server answered with an HTTP
+  and make the run incomplete, and so is a session folder kept because a
+  Hermes shim still points into it (the report says to reinstall Hermes
+  rather than delete it by hand), as is a revoke the server answered with an HTTP
   status, which `--json` gives as `http_status`. An agent it could not clean up (its
   `off` failed, or its config still holds a key) keeps its snapshot and the
   record `on` left, so running `aiand <agent> off` once the file is fixed

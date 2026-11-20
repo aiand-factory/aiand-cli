@@ -1,8 +1,8 @@
-import { lstat, readFile, realpath, unlink } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
-import { findUnmarkedKeyDirs, sweepOverlays } from "../agents/overlays.js";
+import { findUnmarkedKeyDirs, HERMES_SHIM_HELD, sweepOverlays } from "../agents/overlays.js";
 import { AGENTS, wiringCheckFor } from "../agents/registry.js";
 import { scrubSnapshotKeys } from "../agents/snapshot.js";
 import { revokeTokens } from "../api/device.js";
@@ -11,17 +11,24 @@ import { err, json, out, safeLine, style } from "../cli/output.js";
 import { confirm, isInteractive } from "../cli/prompt.js";
 import { redactSecrets } from "../cli/redact.js";
 import {
+  CONSOLE_KEYS_URL,
   CREDENTIAL_ORIGIN,
   clearCredential,
   configDir,
-  issuerAuthUrl,
+  issuerBinding,
   type LoadedCredential,
   loadAllCredentials,
   loadConfig,
   loadCredential,
   redactUrl,
+  unprovenIssuer,
 } from "../config.js";
-import { CONFIG_MARKER_FILE } from "../config-files.js";
+import {
+  CONFIG_MARKER_FILE,
+  readConfigId,
+  readMarkerId,
+  SIGN_IN_STORE_FILES,
+} from "../config-files.js";
 import { agentHome, pathIsInside } from "../fsutil.js";
 import { deleteSecret } from "../secrets.js";
 import {
@@ -32,7 +39,6 @@ import {
   wipeConfigDir,
 } from "./config-wipe.js";
 import { classifySource } from "./identity.js";
-import { CONSOLE_KEYS_URL } from "./logout.js";
 
 /** Set to 1 to let `logout --all` delete a config dir outside the home directory. */
 export const WIPE_OUTSIDE_HOME_ENV = "AIAND_WIPE_OUTSIDE_HOME";
@@ -60,6 +66,14 @@ type AgentOutcome = {
   notes?: string[];
   error?: string;
 };
+
+/**
+ * Recovery for a refused dir that holds a sign-in. Login replaces a stored
+ * sign-in without revoking it, so logging out comes first: once its refresh
+ * token is overwritten, nothing here can revoke the key it minted.
+ */
+const LOG_OUT_FIRST =
+  "first run aiand logout --profile <name> with AIAND_CONFIG_DIR set to it, for each profile its credentials.json names: that revokes each key aiand minted where it was issued, and a login there now would replace a sign-in without revoking it.";
 
 /** An error's text for a report: it can quote a file or a response, so one safe line with no key in it. */
 const message = (error: unknown): string =>
@@ -92,9 +106,22 @@ async function wipeTarget(): Promise<string | null> {
     });
   }
   if (!(await provesAiandConfigDir(real))) {
-    throw new CliError(`Refusing to delete from ${real}: it is not aiand's config directory.`, {
-      hint: `aiand's own directory has a config.json with a profile and profiles, and a ${CONFIG_MARKER_FILE} file carrying the same id as that config.json. This one has neither, and a ${CONFIG_MARKER_FILE} file that is empty or copied from elsewhere proves nothing. If it really is aiand's, run aiand login with AIAND_CONFIG_DIR set to it, so aiand writes them, then run aiand logout --all again; otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
-    });
+    const names = await readdir(real).catch((): string[] => []);
+    const signIn = names.some((name) => SIGN_IN_STORE_FILES.has(name));
+    const unvouched = signIn && !names.includes("config.json");
+    // The dir is unproven, so two ids here are two different ones.
+    const otherId = (await readMarkerId(real)) !== null && (await readConfigId(real)) !== null;
+    // aiand never rewrites a marker that names an id, so a login fixes a mismatch only once it is gone.
+    const there = signIn ? "there" : "with AIAND_CONFIG_DIR set to it";
+    const relogin = otherId
+      ? `delete its ${CONFIG_MARKER_FILE} file, run aiand login ${there}, and run aiand logout --all again.`
+      : `run aiand login ${there}, so aiand writes them, and run aiand logout --all again.`;
+    throw new CliError(
+      `Refusing to delete from ${real}: it is not aiand's config directory${unvouched ? ", or a sign-in there never finished: it holds sign-in files but no config.json" : ""}.`,
+      {
+        hint: `aiand's own directory has a config.json with a profile and profiles, and a ${CONFIG_MARKER_FILE} file carrying the same id as that config.json; aiand login writes both. A ${CONFIG_MARKER_FILE} file that is empty or copied from elsewhere proves nothing, and sign-in files (credentials.json, secret-store.*) count only beside that config.json.${otherId ? ` This one's config.json records another id than its ${CONFIG_MARKER_FILE} file, so one of them came from another install.` : ""} If it really is aiand's, ${signIn ? `${LOG_OUT_FIRST} Then ${relogin}` : relogin} Otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
+      },
+    );
   }
   return real;
 }
@@ -236,7 +263,9 @@ export async function logoutAll(opts: LogoutAllOptions = {}): Promise<void> {
       continue;
     }
     try {
-      const issuer = issuerAuthUrl(name, credential);
+      const binding = await issuerBinding(name, credential);
+      if (!binding) throw new Error(unprovenIssuer(name, "its key was not revoked").message);
+      const issuer = binding.auth_url;
       const result = await revokeTokens(issuer, credential.refresh_token);
       outcome.revoked = result.revoked;
       if (result.status !== undefined) outcome.http_status = result.status;
@@ -459,6 +488,12 @@ export async function logoutAll(opts: LogoutAllOptions = {}): Promise<void> {
     );
   }
   for (const { dir, reason } of overlays.failed) {
+    if (reason === HERMES_SHIM_HELD) {
+      out(
+        `  Kept the session overlay ${safeLine(dir)}: a Hermes shim still points into it, and deleting it would break your hermes command. Reinstall Hermes, then run aiand logout --all again.`,
+      );
+      continue;
+    }
     out(
       `  Could not delete the session overlay ${safeLine(dir)} (${safeLine(reason)}); it may still hold your key. Delete it by hand.`,
     );

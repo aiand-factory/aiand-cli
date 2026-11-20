@@ -79,6 +79,12 @@ afterEach(() => {
 const opencodePath = () => join(home, ".config", "opencode", "opencode.json");
 const claudePath = () => join(home, ".claude", "settings.json");
 
+/** What sign-in leaves behind: the credential, then the profile in config.json. */
+async function signIn(name, credential) {
+  await config.saveCredential(name, credential);
+  await config.updateProfile(name, {});
+}
+
 /** Two device-minted profiles and one pasted; `work` is wired but not active. */
 async function seedMachine() {
   await config.saveCredential("default", {
@@ -250,7 +256,7 @@ describe("logout --all (serial)", { concurrency: 1 }, () => {
 
   test("a hostile profile name never reaches the terminal as a control sequence", async () => {
     const name = "evil\x1b]52;c;QQ==\x07\x1b[31mred";
-    await config.saveCredential(name, {
+    await signIn(name, {
       access_token: "sk-evil-minted",
       refresh_token: "rt-evil",
       origin: "device",
@@ -308,7 +314,7 @@ describe("logout --all (serial)", { concurrency: 1 }, () => {
   });
 
   test("a revoke the server answers with an HTTP status names it; one it never answers does not", async () => {
-    await config.saveCredential("default", {
+    await signIn("default", {
       access_token: "sk-default-minted",
       refresh_token: "rt-default",
       origin: "device",
@@ -687,6 +693,56 @@ describe("logout --all reports the overlays it could not deal with (serial)", {
     }
   });
 
+  /**
+   * A crashed Hermes session's overlay whose store shim still points into it
+   * after the sweep's restore: the snapshot it would restore from names the
+   * overlay too, so putting it back cannot clear the pointer.
+   */
+  const plantHeldHermesOverlay = () => {
+    const overlay = plantOverlay(DEAD_PID, { name: "aiand-hermes-" });
+    const shims = mkdtempSync(join(dir, "held-shims-"));
+    const pointing = `#!/bin/sh\nexec ${overlay}/tools/python3\n`;
+    writeFileSync(join(shims, "hermes"), pointing, { mode: 0o755 });
+    writeFileSync(
+      join(overlay, ".aiand-overlay-shims"),
+      JSON.stringify({
+        dir: shims,
+        entries: { hermes: { mode: 0o755, body: Buffer.from(pointing).toString("base64") } },
+      }),
+    );
+    return { overlay, shims };
+  };
+
+  test("an overlay a Hermes shim still points into is kept and reported, and the run is not complete", async () => {
+    await seedMachine();
+    const { overlay, shims } = plantHeldHermesOverlay();
+    try {
+      const report = JSON.parse(cliStdout(await runAll({ json: true, keepRemote: true })));
+      assert.equal(existsSync(join(overlay, "auth.json")), true, "kept, so hermes still runs");
+      assert.deepEqual(report.overlays.failed, [
+        { dir: overlay, reason: "a Hermes shim still points into it" },
+      ]);
+      assert.equal(report.complete, false);
+      assert.equal(process.exitCode, 1);
+    } finally {
+      rmSync(overlay, { recursive: true, force: true });
+      rmSync(shims, { recursive: true, force: true });
+    }
+  });
+
+  test("the text report says to reinstall Hermes, not to delete the overlay by hand", async () => {
+    await seedMachine();
+    const { overlay, shims } = plantHeldHermesOverlay();
+    try {
+      const text = cliStdout(await runAll({ keepRemote: true }));
+      assert.match(text, /Kept the session overlay .*aiand-hermes-.*Reinstall Hermes/);
+      assert.doesNotMatch(text, /aiand-hermes-.*Delete it by hand/);
+    } finally {
+      rmSync(overlay, { recursive: true, force: true });
+      rmSync(shims, { recursive: true, force: true });
+    }
+  });
+
   /** An older aiand's overlay (no marker) and a foreign aiand-* folder, both holding a key the machine knows. */
   const plantUnmarked = () => {
     const older = mkdtempSync(join(tmpdir(), "aiand-claude-"));
@@ -910,9 +966,77 @@ describe("logout --all only wipes a directory that proves it is aiand's (serial)
       await config.saveConfig({ profile: "default", profiles: { default: {} } });
       writeFileSync(join(other, ".aiand-config"), copied);
       writeFileSync(join(other, "notes.txt"), "mine\n");
-      await assert.rejects(() => logoutAll({ force: true }), /not aiand's/);
+      await assert.rejects(
+        () => logoutAll({ force: true }),
+        (error) => {
+          assert.match(error.message, /not aiand's config directory\.$/);
+          assert.match(
+            error.hint,
+            /records another id[\s\S]*delete its \.aiand-config file, run aiand login with AIAND_CONFIG_DIR set to it/,
+          );
+          return true;
+        },
+      );
       assert.equal(readFileSync(join(other, "notes.txt"), "utf8"), "mine\n");
       assert.equal(existsSync(join(other, "config.json")), true);
+    });
+
+    test("a marker naming an id, beside foreign sign-in files and no config.json, deletes none of them", async () => {
+      const project = join(home, "project");
+      mkdirSync(project, { recursive: true });
+      writeFileSync(join(project, ".aiand-config"), `id: ${"ab".repeat(16)}\n`);
+      writeFileSync(join(project, "credentials.json"), "{}\n");
+      writeFileSync(join(project, "update-check.json"), "mine\n");
+      process.env.AIAND_CONFIG_DIR = project;
+      await assert.rejects(
+        () => logoutAll({ force: true }),
+        (error) => {
+          assert.match(error.message, /not aiand's config directory.*no config\.json/);
+          assert.match(error.hint, /aiand login/);
+          return true;
+        },
+      );
+      assert.equal(readFileSync(join(project, "credentials.json"), "utf8"), "{}\n");
+      assert.equal(readFileSync(join(project, "update-check.json"), "utf8"), "mine\n");
+      assert.deepEqual(state.revocations, []);
+    });
+
+    test("a cache write into a dir holding another tool's credentials.json drops no marker", async () => {
+      const project = join(home, "project");
+      mkdirSync(project, { recursive: true });
+      writeFileSync(join(project, "credentials.json"), "{}\n");
+      process.env.AIAND_CONFIG_DIR = project;
+      await writeFileAtomicIn(join(project, "model-catalog.json"));
+      assert.equal(existsSync(join(project, ".aiand-config")), false);
+      await assert.rejects(() => logoutAll({ force: true }), /not aiand's/);
+      assert.equal(readFileSync(join(project, "credentials.json"), "utf8"), "{}\n");
+    });
+
+    test("a signed-in install, sign-in files and caches included, is still wiped", async () => {
+      await signIn("default", {
+        access_token: "sk-default-minted",
+        refresh_token: "rt-default",
+        origin: "device",
+        bound_to: stubBinding(),
+      });
+      await writeFileAtomicIn(join(cfg, "update-check.json"));
+      assert.equal(existsSync(join(cfg, "credentials.json")), true);
+      const report = JSON.parse(cliStdout(await runAll({ json: true })));
+      assert.equal(report.config_dir.removed, true);
+      assert.equal(existsSync(cfg), false);
+    });
+
+    test("a signed-in install from before the marker is marked on its next write and wiped", async () => {
+      const old = join(home, "old-install");
+      mkdirSync(old, { recursive: true });
+      writeFileSync(join(old, "config.json"), '{"profile":"default","profiles":{"default":{}}}\n');
+      writeFileSync(join(old, "credentials.json"), "{}\n");
+      process.env.AIAND_CONFIG_DIR = old;
+      await writeFileAtomicIn(join(old, "model-catalog.json"));
+      assert.match(readFileSync(join(old, ".aiand-config"), "utf8"), /^id: [0-9a-f]{32}$/m);
+      const report = JSON.parse(cliStdout(await runAll({ json: true })));
+      assert.equal(report.config_dir.removed, true);
+      assert.equal(existsSync(old), false);
     });
 
     test("a dir aiand wrote only caches into, which has a marker and no config.json, is wiped", async () => {

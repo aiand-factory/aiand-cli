@@ -13,6 +13,7 @@ import {
   bindCredential,
   bindingFor,
   type CredentialBinding,
+  fallbackBinding,
   type LoadedCredential,
   legacyBinding,
   loadCredential,
@@ -21,6 +22,7 @@ import {
   redactUrl,
   saveCredential,
   storedBinding,
+  unprovenIssuer,
 } from "../config.js";
 import { withFileLock } from "../filelock.js";
 import { configDir } from "../fsutil.js";
@@ -118,7 +120,11 @@ export async function openSession(profile: ResolvedProfile): Promise<Session> {
  * so a later `config set` cannot move where its key goes. */
 async function pinBinding(name: string, credential: LoadedCredential): Promise<LoadedCredential> {
   if (storedBinding(credential)) return credential;
-  const bound_to = legacyBinding(name);
+  const bound_to = await fallbackBinding(name);
+  if (!bound_to) {
+    const { message, hint } = unprovenIssuer(name, "its key was not sent");
+    throw new NotBoundError(message, hint);
+  }
   await bindCredential(name, bound_to);
   return { ...credential, bound_to };
 }

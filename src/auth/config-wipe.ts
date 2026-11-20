@@ -8,6 +8,7 @@ import {
   mayMarkConfigDir,
   readConfigId,
   readMarkerId,
+  SIGN_IN_STORE_FILES,
   STRAY_TEMP,
 } from "../config-files.js";
 
@@ -25,14 +26,7 @@ const SNAPSHOT_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$/;
 const SNAPSHOT_STATE_FILES = ["latest.json", "added.json", "git-optin.json"];
 
 /** The files a kept sign-in lives in: its profile (authUrl), metadata and every storage tier. */
-export const SIGN_IN_FILES: ReadonlySet<string> = new Set([
-  "config.json",
-  "credentials.json",
-  "credentials-plaintext.json",
-  "secret-store.json",
-  "secret-store.key",
-  "secret-store.dpapi.json",
-]);
+export const SIGN_IN_FILES: ReadonlySet<string> = new Set(["config.json", ...SIGN_IN_STORE_FILES]);
 
 export type WipePlan = {
   /** Top-level aiand files to leave: the sign-in a failed revoke still needs for a retry. */
@@ -68,9 +62,10 @@ async function removeFile(path: string): Promise<boolean> {
  * empty marker, or one copied from another install, proves nothing. A
  * `config.json` with aiand's schema and no id (an install older than the
  * ids) proves it by its shape. With no usable `config.json`, a marker that
- * names an id counts when the dir holds nothing but aiand's own entries (a
- * dir `aiand models` wrote a cache into and nothing else), and an empty dir
- * has nothing to lose.
+ * names an id counts when the dir holds nothing but aiand's caches (a dir
+ * `aiand models` wrote a cache into and nothing else), and an empty dir has
+ * nothing to lose. A sign-in file is never vouched for by the marker alone
+ * (see `mayMarkConfigDir`), so a dir holding one needs that `config.json`.
  */
 export async function provesAiandConfigDir(real: string): Promise<boolean> {
   const [markerId, configId] = await Promise.all([readMarkerId(real), readConfigId(real)]);

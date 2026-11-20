@@ -337,17 +337,18 @@ async function configRootContaining(dir: string): Promise<string | null> {
  * holds a `config.json`. aiand drops this file in the first time it writes
  * there, naming the install with a random id that `config.json` records too;
  * an empty file, or one copied from elsewhere, names nothing that matches.
- * A marker that names no id (an older aiand's), or an id that is not the one
- * `config.json` records, is replaced, but only in a dir that is aiand's by
- * content.
+ * A marker that names no id (an older aiand's) is replaced, but only in a dir
+ * that is aiand's by content. One that names an id is never rewritten: an id
+ * that is not the one `config.json` records means that `config.json` came
+ * from another install, and making the two agree would vouch for it.
  */
 async function ensureConfigMarker(root: string): Promise<void> {
   try {
     // Only a dir that is aiand's by content gets vouched for: any write under
     // the config dir, a cache file included, passes through here.
     if (!(await mayMarkConfigDir(root))) return;
-    const [markerId, configId] = await Promise.all([readMarkerId(root), readConfigId(root)]);
-    if (markerId !== null && (configId === null || configId === markerId)) return;
+    if ((await readMarkerId(root)) !== null) return;
+    const configId = await readConfigId(root);
     const path = join(root, CONFIG_MARKER_FILE);
     const existing = await lstat(path).catch(() => null);
     if (existing?.isDirectory()) return;
@@ -364,10 +365,24 @@ async function ensureConfigMarker(root: string): Promise<void> {
   }
 }
 
-/** Make the config dir's marker agree with the id its `config.json` records, after that was written. */
+/** Mark the config dir if it has no marker yet, now that its `config.json` was written. */
 export async function syncConfigMarker(): Promise<void> {
   const root = await configRootContaining(configDir());
   if (root !== null) await ensureConfigMarker(root);
+}
+
+/**
+ * The id `saveConfig` records: the marker's, dropping the marker first when
+ * the dir may have one and has none. Read before `config.json` is written, so
+ * the two are written with one id rather than made to agree afterwards.
+ */
+export async function configMarkerId(): Promise<string | null> {
+  const dir = configDir();
+  await mkdir(dir, { recursive: true, mode: PRIVATE_DIR_MODE }).catch(() => {});
+  const root = await configRootContaining(dir);
+  if (root === null) return null;
+  await ensureConfigMarker(root);
+  return readMarkerId(root);
 }
 
 export async function existingFileMode(filePath: string): Promise<number | undefined> {

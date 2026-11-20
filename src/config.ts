@@ -1,16 +1,26 @@
 import { readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { provesAiandConfigDir } from "./auth/config-wipe.js";
 import { CliError } from "./cli/errors.js";
 import { INVALID_KEY_MESSAGE, isValidKeyShape } from "./cli/redact.js";
-import { isConfigId, newConfigId, readMarkerId } from "./config-files.js";
+import { isConfigId, newConfigId } from "./config-files.js";
 import { withFileLock } from "./filelock.js";
-import { configDir, PRIVATE_FILE_MODE, syncConfigMarker, writeFileAtomic } from "./fsutil.js";
+import {
+  configDir,
+  configMarkerId,
+  PRIVATE_FILE_MODE,
+  syncConfigMarker,
+  writeFileAtomic,
+} from "./fsutil.js";
 import type { DpapiFailure, Tier } from "./secrets.js";
 import * as secrets from "./secrets.js";
 
 export { agentHome, configDir, writeFileAtomic } from "./fsutil.js";
 
 export const DEFAULT_BASE_URL = "https://api.aiand.com";
+
+/** The console page where a key this CLI cannot revoke is revoked by hand. */
+export const CONSOLE_KEYS_URL = "https://console.aiand.com/api-keys";
 
 export type Profile = {
   authUrl?: string;
@@ -103,9 +113,9 @@ export function loadConfig(): Config {
 }
 
 export async function saveConfig(config: Config): Promise<void> {
-  // The id that lets `logout --all` tell this dir is aiand's: one the marker
-  // already carries (a cache write got there first), else a fresh one.
-  const config_id = config.config_id ?? (await readMarkerId(configDir())) ?? newConfigId();
+  // The id that lets `logout --all` tell this dir is aiand's: the one the
+  // marker carries (dropped now if there is none), else a fresh one.
+  const config_id = config.config_id ?? (await configMarkerId()) ?? newConfigId();
   await writeJson(configPath(), { ...config, config_id }, PRIVATE_FILE_MODE);
   await syncConfigMarker();
 }
@@ -276,11 +286,37 @@ export function legacyBinding(name: string): CredentialBinding {
 }
 
 /**
- * Where a credential's refresh token may go: the auth URL that issued it,
- * whatever --base-url / AIAND_BASE_URL / AIAND_AUTH_URL this run carries.
+ * Where a credential saved before 0.8 (no `bound_to`) may send its key and
+ * refresh token: its profile's endpoints in config.json (see legacyBinding),
+ * read only from a config.json this install vouches for. With no config.json,
+ * or one whose id is not the marker's (copied from another install), nothing
+ * here says where the sign-in was issued, so this is null and nothing is sent
+ * or pinned. Every place that fallback becomes a request or a binding asks
+ * here, so a later write in the dir cannot turn one refusal into a binding
+ * somewhere else.
  */
-export function issuerAuthUrl(name: string, credential: Pick<Credential, "bound_to">): string {
-  return (storedBinding(credential) ?? legacyBinding(name)).auth_url;
+export async function fallbackBinding(name: string): Promise<CredentialBinding | null> {
+  return (await provesAiandConfigDir(configDir())) ? legacyBinding(name) : null;
+}
+
+/**
+ * Where a credential's key and refresh token may go: the endpoints that issued
+ * it, whatever --base-url / AIAND_BASE_URL / AIAND_AUTH_URL this run carries,
+ * else fallbackBinding. Null when neither says.
+ */
+export async function issuerBinding(
+  name: string,
+  credential: Pick<Credential, "bound_to">,
+): Promise<CredentialBinding | null> {
+  return storedBinding(credential) ?? (await fallbackBinding(name));
+}
+
+/** Why a sign-in fallbackBinding has no answer for was not used, and how to recover. */
+export function unprovenIssuer(name: string, outcome: string): { message: string; hint: string } {
+  return {
+    message: `The sign-in for "${name}" does not record where it was issued, and this directory's config.json can't be trusted to say where, so ${outcome}.`,
+    hint: `If it is aiand's, revoke its key at ${CONSOLE_KEYS_URL}, then run \`aiand logout --keep-remote --profile ${name}\` to forget it here, and \`aiand login\` to sign in again.`,
+  };
 }
 
 /** A well-formed bound_to, or null for a legacy or hand-mangled entry. */
@@ -324,7 +360,13 @@ export function resolveProfile(override?: string): ResolvedProfile {
 /** Pin a credential saved before 0.8 to the profile's endpoints as stored now. */
 async function pinLegacyBinding(name: string): Promise<void> {
   const entry = (await loadAllCredentials())[name];
-  if (entry && !storedBinding(entry)) await bindCredential(name, legacyBinding(name));
+  if (!entry || storedBinding(entry)) return;
+  const binding = await fallbackBinding(name);
+  if (!binding) {
+    const { message, hint } = unprovenIssuer(name, "its endpoints were not changed");
+    throw new CliError(message, { hint });
+  }
+  await bindCredential(name, binding);
 }
 
 export async function updateProfile(name: string, patch: Partial<Profile>): Promise<void> {

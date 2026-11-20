@@ -54,14 +54,23 @@ export async function readConfigId(real: string): Promise<string | null> {
   }
 }
 
-/** Files aiand writes into its config dir. */
-export const CONFIG_FILES: ReadonlySet<string> = new Set([
-  "config.json",
+/**
+ * The files a sign-in is stored in. Other tools keep files by these names
+ * too, and losing one is losing a sign-in, so only a `config.json` of
+ * aiand's vouches for them: a marker beside them is never enough.
+ */
+export const SIGN_IN_STORE_FILES: ReadonlySet<string> = new Set([
   "credentials.json",
   "credentials-plaintext.json",
   "secret-store.json",
   "secret-store.key",
   "secret-store.dpapi.json",
+]);
+
+/** Files aiand writes into its config dir. A new sign-in store file goes in SIGN_IN_STORE_FILES. */
+export const CONFIG_FILES: ReadonlySet<string> = new Set([
+  "config.json",
+  ...SIGN_IN_STORE_FILES,
   "secret-store.lock",
   "secret-store.lock.steal",
   "credentials.lock",
@@ -99,10 +108,13 @@ export async function holdsAiandConfig(real: string): Promise<boolean> {
 /**
  * Whether aiand may vouch for `root` with its marker: its `config.json` has
  * aiand's shape (an install older than the marker), or the dir holds nothing
- * but aiand's own entries and temp files, a new or empty dir included. A dir
- * with anything else in it, or a `config.json` of another tool's shape, is
+ * but aiand's own caches, dirs and temp files, a new or empty dir included. A
+ * dir with anything else in it, or a `config.json` of another tool's shape, is
  * someone else's: an `AIAND_CONFIG_DIR` typed as `~/.docker` must stay
- * unproven so `logout --all` refuses it.
+ * unproven so `logout --all` refuses it. So is one holding a sign-in file and
+ * no `config.json`: sign-in writes `config.json` right after the credential,
+ * so aiand's own sign-in files never sit without one for long, and a marker
+ * dropped by a cache write must not vouch for another tool's credentials.
  */
 export async function mayMarkConfigDir(root: string): Promise<boolean> {
   if (await holdsAiandConfig(root)) return true;
@@ -110,6 +122,7 @@ export async function mayMarkConfigDir(root: string): Promise<boolean> {
   return names.every(
     (name) =>
       name !== "config.json" &&
+      !SIGN_IN_STORE_FILES.has(name) &&
       (name === CONFIG_MARKER_FILE ||
         CONFIG_FILES.has(name) ||
         CONFIG_DIRS.has(name) ||

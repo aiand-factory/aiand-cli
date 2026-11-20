@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import test, { after, before, describe } from "node:test";
@@ -422,6 +422,67 @@ describe("credentials saved before binding existed", { concurrency: 1 }, () => {
   });
 });
 
+describe("an old credential in a dir whose config.json cannot say where it was issued", {
+  concurrency: 1,
+}, () => {
+  /** A config.json copied from another install: aiand's shape, B as the issuer, another id. */
+  const copyForeignConfig = (cfg) =>
+    writeFileSync(
+      join(cfg, "config.json"),
+      `${JSON.stringify({
+        profile: "default",
+        profiles: { default: { apiUrl: B.url, authUrl: B.url } },
+        config_id: "0".repeat(32),
+      })}\n`,
+    );
+
+  test("a refused logout stays refused after `aiand models` and a config save write in the dir", async () => {
+    const cfg = seed();
+    copyForeignConfig(cfg);
+    const marker = readFileSync(join(cfg, ".aiand-config"), "utf8");
+    await nothingReachesB(async () => {
+      const first = await cli(cfg, ["logout", "--revoke"]);
+      assert.notEqual(first.code, 0);
+      assert.match(first.stderr, /does not record where it was issued/);
+      const models = await cli(cfg, ["models"]);
+      assert.equal(models.code, 0, models.stderr);
+      // Any write in the dir runs the marker code; a config save is one.
+      assert.equal((await cli(cfg, ["config", "set", "model", "m"])).code, 0);
+      const again = await cli(cfg, ["logout", "--revoke"]);
+      assert.notEqual(again.code, 0);
+      assert.match(again.stderr, /does not record where it was issued/);
+    });
+    assert.equal(
+      readFileSync(join(cfg, ".aiand-config"), "utf8"),
+      marker,
+      "the marker is evidence",
+    );
+    assert.equal(credentialsOf(cfg).default.bound_to, undefined, "nothing was pinned");
+    assert.deepEqual(secretOf(cfg), { access_token: "sk-real", refresh_token: "rt-real" });
+  });
+
+  test("with no config.json, first use and `config set` pin nothing", async () => {
+    const cfg = seed();
+    rmSync(join(cfg, "config.json"));
+    const whoami = await cli(cfg, ["whoami"]);
+    assert.equal(whoami.code, 2);
+    assert.match(whoami.stderr, /its key was not sent/);
+    const set = await cli(cfg, ["config", "set", "api-url", A.url]);
+    assert.notEqual(set.code, 0);
+    assert.match(set.stderr, /its endpoints were not changed/);
+    assert.equal(credentialsOf(cfg).default.bound_to, undefined);
+    assert.equal(existsSync(join(cfg, "config.json")), false);
+  });
+
+  test("`config use` bakes its key nowhere", async () => {
+    const cfg = seed();
+    copyForeignConfig(cfg);
+    const { code, stderr } = await cli(cfg, ["config", "use", "default"]);
+    assert.equal(code, 0, stderr);
+    assert.match(stderr, /its key was not baked into agent configs/);
+  });
+});
+
 describe("`config set` before an old credential's first use", { concurrency: 1 }, () => {
   test("cannot move where its key and refresh token go", async () => {
     const cfg = seed({ profiles: { default: { apiUrl: A.url, authUrl: A.url } } });
@@ -619,6 +680,119 @@ describe("in-process gates", { concurrency: 1 }, () => {
     const revokes = A.seen.slice(before).filter((r) => r.path === "/auth/device/logout");
     assert.equal(revokes.length, 1);
     assert.match(revokes[0].body, /rt-real/);
+  });
+
+  test("a sign-in left with no config.json: logout --all says to log out first, and logout revokes at the issuer", async () => {
+    const cfg = seed({ boundTo: boundToA() });
+    rmSync(join(cfg, "config.json"));
+    rmSync(join(cfg, ".aiand-config"));
+    const before = A.seen.length;
+    await nothingReachesB(async () => {
+      const refused = await cli(cfg, ["logout", "--all", "--force"], {
+        AIAND_WIPE_OUTSIDE_HOME: "1",
+      });
+      assert.notEqual(refused.code, 0);
+      // A login first would replace the sign-in without revoking its key.
+      assert.match(
+        refused.stderr,
+        /first run aiand logout --profile <name>[\s\S]*Then run aiand login/,
+      );
+      assert.equal(A.seen.length, before, "the refusal sends nothing");
+      const { code, stderr } = await cli(cfg, ["logout", "--revoke"], { AIAND_BASE_URL: B.url });
+      assert.equal(code, 0, stderr);
+    });
+    const revokes = A.seen.slice(before).filter((r) => r.path === "/auth/device/logout");
+    assert.equal(revokes.length, 1);
+    assert.match(revokes[0].body, /rt-real/);
+    assert.equal(existsSync(join(cfg, "credentials.json")), false);
+  });
+
+  test("a sign-in beside a config.json of another install: logout --all says to log out first", async () => {
+    const cfg = seed({ boundTo: boundToA() });
+    // config.json carries an id the marker does not: copied from another install.
+    writeFileSync(
+      join(cfg, "config.json"),
+      `${JSON.stringify({ profile: "default", profiles: { default: {} }, config_id: "0".repeat(32) })}\n`,
+    );
+    const before = A.seen.length;
+    await nothingReachesB(async () => {
+      const refused = await cli(cfg, ["logout", "--all", "--force"], {
+        AIAND_WIPE_OUTSIDE_HOME: "1",
+      });
+      assert.notEqual(refused.code, 0);
+      assert.match(refused.stderr, /it is not aiand's config directory\./);
+      // aiand never rewrites the marker, so a login alone would not make the two agree.
+      assert.match(
+        refused.stderr,
+        /records another id[\s\S]*first run aiand logout --profile <name>[\s\S]*Then delete its \.aiand-config file, run aiand login/,
+      );
+      assert.equal(A.seen.length, before, "the refusal sends nothing");
+    });
+    assert.equal(existsSync(join(cfg, "credentials.json")), true);
+  });
+
+  test("logout sends an unbound sign-in nowhere when no config.json says where it was issued", async () => {
+    const cfg = seed();
+    rmSync(join(cfg, "config.json"));
+    let fetched = 0;
+    await withEnv({ AIAND_CONFIG_DIR: cfg, AIAND_HOME: join(cfg, "home") }, () =>
+      withFetch(
+        async () => {
+          fetched += 1;
+          return new Response("{}");
+        },
+        async () => {
+          const muted = captureStdio({ mute: true });
+          try {
+            await assert.rejects(
+              logout({ profile: "default", revoke: true }),
+              /does not record where it was issued/,
+            );
+            assert.deepEqual(secretOf(cfg), { access_token: "sk-real", refresh_token: "rt-real" });
+            await logout({ profile: "default", keepRemote: true });
+          } finally {
+            muted.restore();
+          }
+        },
+      ),
+    );
+    assert.equal(fetched, 0);
+    assert.equal(existsSync(join(cfg, "credentials.json")), false);
+  });
+
+  test("logout sends an unbound sign-in nowhere when config.json's id is not the marker's", async () => {
+    const cfg = seed();
+    // A config.json copied from another install: aiand's shape, an issuer, another id.
+    writeFileSync(
+      join(cfg, "config.json"),
+      `${JSON.stringify({
+        profile: "default",
+        profiles: { default: { apiUrl: A.url, authUrl: A.url } },
+        config_id: "0".repeat(32),
+      })}\n`,
+    );
+    let fetched = 0;
+    await withEnv({ AIAND_CONFIG_DIR: cfg, AIAND_HOME: join(cfg, "home") }, () =>
+      withFetch(
+        async () => {
+          fetched += 1;
+          return new Response("{}");
+        },
+        async () => {
+          const muted = captureStdio({ mute: true });
+          try {
+            await assert.rejects(
+              logout({ profile: "default", revoke: true }),
+              /does not record where it was issued/,
+            );
+          } finally {
+            muted.restore();
+          }
+        },
+      ),
+    );
+    assert.equal(fetched, 0);
+    assert.deepEqual(secretOf(cfg), { access_token: "sk-real", refresh_token: "rt-real" });
   });
 
   test("a pasted key records the endpoint it was validated against", async () => {

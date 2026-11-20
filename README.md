@@ -232,7 +232,9 @@ It asks first; off a terminal, pass `--force`. Then it:
 - removes ai& from every coding agent, whichever profile wired it, and checks
   that no ai& key is left in their config files;
 - deletes leftover session files that a crashed `aiand run-agent` left in the
-  temp directory;
+  temp directory, except one a Hermes shim still points into: deleting it
+  would break your `hermes` command, so it is reported, and goes on a later
+  run once Hermes is reinstalled;
 - deletes every stored key, OS keychain entries included, and `~/.config/aiand`
   itself: profiles, settings and snapshots.
 
@@ -281,9 +283,20 @@ directory the first time it writes there, but only when the directory is new,
 empty, or holds nothing but aiand's own files (a cache write into `~/.docker`
 marks nothing). The file holds a random id that the directory's `config.json`
 records too, so an empty or copied one proves nothing; a directory from before
-that passes when its `config.json` holds a `profile` and `profiles`. Otherwise
+that passes when its `config.json` holds a `profile` and `profiles`. Sign-in
+files (`credentials.json`, `secret-store.*`) need that `config.json` beside
+them, since `.aiand-config` alone vouches only for caches. Otherwise
 it refuses before touching anything; run `aiand login` with `AIAND_CONFIG_DIR`
-set to the directory if it really is aiand's, so aiand writes them. Inside it,
+set to the directory if it really is aiand's, so aiand writes them; if its
+`config.json` records another id than `.aiand-config`, delete `.aiand-config`
+first, since aiand never rewrites one that names an id. If that
+directory holds a sign-in with no `config.json` (one interrupted before it was
+written), run `aiand logout --profile <name>` there before that login, for each
+profile in its `credentials.json`: that revokes the key where it was issued, which a new
+`aiand login` over it would not. A sign-in that does not record where it was
+issued is not sent anywhere from a directory with no `config.json`, or one
+whose `config.json` records another id: revoke its key in the console and run
+`aiand logout --keep-remote`. Inside it,
 a `locks` or `snapshots` folder keeps any entry aiand did not put there. The
 directory is checked again right before anything is deleted from it, so one
 swapped for a link while a revoke ran is refused.

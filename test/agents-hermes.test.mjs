@@ -2169,6 +2169,9 @@ describe("hermes adapter: sessionLaunch overlay", () => {
       const swept = await sweepOverlays({ minAgeMs: 24 * 60 * 60 * 1000 });
       assert.ok(!swept.removed.includes(overlay));
       assert.equal(existsSync(overlay), true, "kept while a shim still points inside");
+      assert.deepEqual(swept.failed, [
+        { dir: overlay, reason: "a Hermes shim still points into it" },
+      ]);
       rmSync(overlay, { recursive: true, force: true });
     } finally {
       process.env.PATH = previousPath;

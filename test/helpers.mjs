@@ -571,13 +571,19 @@ export function captureStdio({ mute = false } = {}) {
 }
 
 /**
- * What aiand drops into its config dir the first time it writes there, so
+ * What a sign-in leaves in aiand's config dir besides the credential, so
  * `logout --all` will delete from it: a marker that names the install with an
- * id. An empty file is not one.
+ * id, and a `config.json` recording the same id. An empty marker is not one,
+ * and sign-in files need the `config.json` (see `mayMarkConfigDir`).
  */
 export function writeConfigMarker(dir) {
+  const id = randomBytes(16).toString("hex");
   writeFileSync(
     join(dir, ".aiand-config"),
-    `This directory belongs to the ai& CLI (aiand).\nid: ${randomBytes(16).toString("hex")}\n`,
+    `This directory belongs to the ai& CLI (aiand).\nid: ${id}\n`,
+  );
+  writeFileSync(
+    join(dir, "config.json"),
+    `${JSON.stringify({ profile: "default", profiles: { default: {} }, config_id: id })}\n`,
   );
 }
