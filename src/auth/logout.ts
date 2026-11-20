@@ -8,21 +8,17 @@ import { err, out, safeLine, style } from "../cli/output.js";
 import { confirm, isInteractive } from "../cli/prompt.js";
 import { redactSecrets } from "../cli/redact.js";
 import {
+  CONSOLE_KEYS_URL,
   CREDENTIAL_ORIGIN,
   clearCredential,
-  configDir,
-  issuerAuthUrl,
+  issuerBinding,
   loadConfig,
   loadCredential,
   redactUrl,
   resolveProfile,
-  storedBinding,
+  unprovenIssuer,
 } from "../config.js";
-import { provesAiandConfigDir } from "./config-wipe.js";
 import { classifySource } from "./identity.js";
-
-/** The console page where a key this CLI cannot revoke is revoked by hand. */
-export const CONSOLE_KEYS_URL = "https://console.aiand.com/api-keys";
 
 export type LogoutOptions = {
   profile?: string;
@@ -79,7 +75,6 @@ export async function logout(opts: LogoutOptions = {}): Promise<void> {
   // {refresh_token} — the server contract sends exactly that. No refresh
   // token means nothing to revoke: the local clear below is the whole job.
   const revokeToken = credential.refresh_token;
-  const issuer = issuerAuthUrl(profile.name, credential);
   let attempt = false;
   if (pasted) {
     keepRemote = true;
@@ -93,18 +88,15 @@ export async function logout(opts: LogoutOptions = {}): Promise<void> {
     keepRemote = true;
   }
   if (attempt && revokeToken) {
-    // A sign-in with no bound_to falls back to the issuer config.json records
-    // for its profile. That is only trusted from a config.json the marker
-    // vouches for: without one the issuer is the default endpoint, a guess,
-    // and a copied one names another install's, so the token goes nowhere.
-    if (!storedBinding(credential) && !(await provesAiandConfigDir(configDir()))) {
-      throw new CliError(
-        `The sign-in for "${profile.name}" does not record where it was issued, and no config.json of this install's says where, so its key was not revoked; you are still signed in.`,
-        {
-          hint: `If it is aiand's, revoke the key at ${CONSOLE_KEYS_URL}, then run \`aiand logout --keep-remote\` to forget it here.`,
-        },
+    const binding = await issuerBinding(profile.name, credential);
+    if (!binding) {
+      const { message, hint } = unprovenIssuer(
+        profile.name,
+        "its key was not revoked; you are still signed in",
       );
+      throw new CliError(message, { hint });
     }
+    const issuer = binding.auth_url;
     const result = await revokeTokens(issuer, revokeToken);
     revoked = result.revoked;
     if (!revoked) {

@@ -11,15 +11,17 @@ import { err, json, out, safeLine, style } from "../cli/output.js";
 import { confirm, isInteractive } from "../cli/prompt.js";
 import { redactSecrets } from "../cli/redact.js";
 import {
+  CONSOLE_KEYS_URL,
   CREDENTIAL_ORIGIN,
   clearCredential,
   configDir,
-  issuerAuthUrl,
+  issuerBinding,
   type LoadedCredential,
   loadAllCredentials,
   loadConfig,
   loadCredential,
   redactUrl,
+  unprovenIssuer,
 } from "../config.js";
 import { CONFIG_MARKER_FILE, holdsSignInFile, holdsUnvouchedSignIn } from "../config-files.js";
 import { agentHome, pathIsInside } from "../fsutil.js";
@@ -32,7 +34,6 @@ import {
   wipeConfigDir,
 } from "./config-wipe.js";
 import { classifySource } from "./identity.js";
-import { CONSOLE_KEYS_URL } from "./logout.js";
 
 /** Set to 1 to let `logout --all` delete a config dir outside the home directory. */
 export const WIPE_OUTSIDE_HOME_ENV = "AIAND_WIPE_OUTSIDE_HOME";
@@ -252,7 +253,9 @@ export async function logoutAll(opts: LogoutAllOptions = {}): Promise<void> {
       continue;
     }
     try {
-      const issuer = issuerAuthUrl(name, credential);
+      const binding = await issuerBinding(name, credential);
+      if (!binding) throw new Error(unprovenIssuer(name, "its key was not revoked").message);
+      const issuer = binding.auth_url;
       const result = await revokeTokens(issuer, credential.refresh_token);
       outcome.revoked = result.revoked;
       if (result.status !== undefined) outcome.http_status = result.status;

@@ -10,14 +10,14 @@ import {
   assertSafeProfileName,
   configPath,
   credentialsPath,
-  legacyBinding,
+  issuerBinding,
   loadConfig,
   loadCredential,
   normalizeBaseUrl,
   redactUrl,
   resolveProfile,
   saveConfig,
-  storedBinding,
+  unprovenIssuer,
   updateProfile,
 } from "../config.js";
 import { routedAgents } from "./agent.js";
@@ -184,8 +184,12 @@ async function use(name: string | undefined, parsed: Parsed): Promise<void> {
   if (!process.env.AIAND_API_KEY?.trim()) {
     const credential = await loadCredential(name);
     if (credential) {
-      const binding = storedBinding(credential) ?? legacyBinding(name);
-      printRebakeNotes(await rebakeForBinding(credential.access_token, name, binding));
+      const binding = await issuerBinding(name, credential);
+      if (binding) {
+        printRebakeNotes(await rebakeForBinding(credential.access_token, name, binding));
+      } else {
+        err(style.dim(unprovenIssuer(name, "its key was not baked into agent configs").message));
+      }
     } else if ((await routedAgents("exclude")).length > 0) {
       err(
         style.dim(

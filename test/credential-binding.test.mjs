@@ -422,6 +422,67 @@ describe("credentials saved before binding existed", { concurrency: 1 }, () => {
   });
 });
 
+describe("an old credential in a dir whose config.json cannot say where it was issued", {
+  concurrency: 1,
+}, () => {
+  /** A config.json copied from another install: aiand's shape, B as the issuer, another id. */
+  const copyForeignConfig = (cfg) =>
+    writeFileSync(
+      join(cfg, "config.json"),
+      `${JSON.stringify({
+        profile: "default",
+        profiles: { default: { apiUrl: B.url, authUrl: B.url } },
+        config_id: "0".repeat(32),
+      })}\n`,
+    );
+
+  test("a refused logout stays refused after `aiand models` and a config save write in the dir", async () => {
+    const cfg = seed();
+    copyForeignConfig(cfg);
+    const marker = readFileSync(join(cfg, ".aiand-config"), "utf8");
+    await nothingReachesB(async () => {
+      const first = await cli(cfg, ["logout", "--revoke"]);
+      assert.notEqual(first.code, 0);
+      assert.match(first.stderr, /does not record where it was issued/);
+      const models = await cli(cfg, ["models"]);
+      assert.equal(models.code, 0, models.stderr);
+      // Any write in the dir runs the marker code; a config save is one.
+      assert.equal((await cli(cfg, ["config", "set", "model", "m"])).code, 0);
+      const again = await cli(cfg, ["logout", "--revoke"]);
+      assert.notEqual(again.code, 0);
+      assert.match(again.stderr, /does not record where it was issued/);
+    });
+    assert.equal(
+      readFileSync(join(cfg, ".aiand-config"), "utf8"),
+      marker,
+      "the marker is evidence",
+    );
+    assert.equal(credentialsOf(cfg).default.bound_to, undefined, "nothing was pinned");
+    assert.deepEqual(secretOf(cfg), { access_token: "sk-real", refresh_token: "rt-real" });
+  });
+
+  test("with no config.json, first use and `config set` pin nothing", async () => {
+    const cfg = seed();
+    rmSync(join(cfg, "config.json"));
+    const whoami = await cli(cfg, ["whoami"]);
+    assert.equal(whoami.code, 2);
+    assert.match(whoami.stderr, /its key was not sent/);
+    const set = await cli(cfg, ["config", "set", "api-url", A.url]);
+    assert.notEqual(set.code, 0);
+    assert.match(set.stderr, /its endpoints were not changed/);
+    assert.equal(credentialsOf(cfg).default.bound_to, undefined);
+    assert.equal(existsSync(join(cfg, "config.json")), false);
+  });
+
+  test("`config use` bakes its key nowhere", async () => {
+    const cfg = seed();
+    copyForeignConfig(cfg);
+    const { code, stderr } = await cli(cfg, ["config", "use", "default"]);
+    assert.equal(code, 0, stderr);
+    assert.match(stderr, /its key was not baked into agent configs/);
+  });
+});
+
 describe("`config set` before an old credential's first use", { concurrency: 1 }, () => {
   test("cannot move where its key and refresh token go", async () => {
     const cfg = seed({ profiles: { default: { apiUrl: A.url, authUrl: A.url } } });
