@@ -287,12 +287,15 @@ that passes when its `config.json` holds a `profile` and `profiles`. Sign-in
 files (`credentials.json`, `secret-store.*`) need that `config.json` beside
 them, since `.aiand-config` alone vouches only for caches. Otherwise
 it refuses before touching anything; run `aiand login` with `AIAND_CONFIG_DIR`
-set to the directory if it really is aiand's, so aiand writes them. If that
+set to the directory if it really is aiand's, so aiand writes them; if its
+`config.json` records another id than `.aiand-config`, delete `.aiand-config`
+first, since aiand never rewrites one that names an id. If that
 directory holds a sign-in with no `config.json` (one interrupted before it was
 written), run `aiand logout --profile <name>` there before that login, for each
 profile in its `credentials.json`: that revokes the key where it was issued, which a new
-`aiand login` over it would not. A sign-in that also does not record where it
-was issued is not sent anywhere; revoke its key in the console and run
+`aiand login` over it would not. A sign-in that does not record where it was
+issued is not sent anywhere from a directory with no `config.json`, or one
+whose `config.json` records another id: revoke its key in the console and run
 `aiand logout --keep-remote`. Inside it,
 a `locks` or `snapshots` folder keeps any entry aiand did not put there. The
 directory is checked again right before anything is deleted from it, so one

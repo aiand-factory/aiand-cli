@@ -70,7 +70,7 @@ export type OverlaySweep = {
   failed: { dir: string; reason: string }[];
 };
 
-/** Why a sweep kept an overlay that deleting would break the user's own `hermes` over. */
+/** Reason a sweep keeps an overlay: deleting it would break the user's `hermes` command. */
 export const HERMES_SHIM_HELD = "a Hermes shim still points into it";
 
 const reasonOf = (error: unknown): string =>

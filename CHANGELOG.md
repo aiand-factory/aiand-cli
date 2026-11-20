@@ -50,9 +50,13 @@ breaking changes while the command surface settles.
   sign-in interrupted before `config.json` was written), it says to run
   `aiand logout --profile <name>` there first, which revokes each key where
   it was issued, since a new `aiand login` would replace the sign-in without
-  revoking it. In such a directory, `aiand logout` does not send a sign-in
-  that records no issuer anywhere: it keeps it and points to the console and
-  `--keep-remote`. A `locks` or `snapshots` folder
+  revoking it. Where there is no such `config.json`, or one whose id does not
+  match the marker's, a sign-in that records no issuer is sent nowhere:
+  `aiand logout` keeps it and points to the console and `--keep-remote`, and
+  its first use, `aiand config set` and `aiand config use` neither pin nor
+  bake it. aiand never rewrites a marker that names an id, so a later command
+  cannot make a mismatched pair agree; the refusal says to delete the marker
+  before signing in again. A `locks` or `snapshots` folder
   keeps whatever aiand did not put in it. The directory is checked again
   right before anything is deleted from it, so one swapped for a link while a
   slow revoke ran is refused. Session folders it could not delete, a temp
