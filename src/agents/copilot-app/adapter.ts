@@ -285,16 +285,15 @@ function parseAppProviderRow(row: Record<string, string | number | null>): AppPr
 }
 
 /**
- * The app sends max_output_tokens as max_tokens, and the model server rejects
- * a prompt plus max_tokens over the context window, so the two must share it.
- * Output takes at most half, which a catalog cap equal to the whole window
- * (Motif 3) would otherwise starve the prompt of; the prompt gets the rest.
+ * The app sends max_output_tokens as max_tokens, and the gateway rejects a
+ * prompt plus max_tokens over the context window, so the two share it.
+ * Output takes at most half, because a catalog cap can equal the whole
+ * window and leave the prompt nothing. A missing or sub-1 cap writes NULL.
  */
-function tokenBudget(model: Model) {
+function tokenBudget(model: Model): Pick<CopilotAppModel, "maxPromptTokens" | "maxOutputTokens"> {
+  const cap = model.max_output_tokens;
   const output =
-    model.max_output_tokens === null
-      ? 0
-      : Math.min(model.max_output_tokens, Math.floor(model.context_window / 2));
+    typeof cap === "number" && cap >= 1 ? Math.min(cap, Math.floor(model.context_window / 2)) : 0;
   return {
     maxPromptTokens: model.context_window - output,
     maxOutputTokens: output >= 1 ? output : null,

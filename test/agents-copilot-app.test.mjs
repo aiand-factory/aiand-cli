@@ -211,6 +211,9 @@ describe("copilot-app adapter", () => {
       }),
       catalogModel("zai-org/glm-5.3", { max_output_tokens: null }),
       catalogModel("tiny/model", { context_window: 1, max_output_tokens: 1 }),
+      catalogModel("unset/cap", { max_output_tokens: undefined }),
+      catalogModel("zero/cap", { max_output_tokens: 0 }),
+      catalogModel("negative/cap", { max_output_tokens: -5 }),
     ];
     await copilotAppAdapter.enable(enableInput({ catalog }));
     const budget = Object.fromEntries(
@@ -220,6 +223,9 @@ describe("copilot-app adapter", () => {
     assert.deepEqual(budget["deepseek-ai/deepseek-v4.1-flash-1017"], [664576, 384000]);
     assert.deepEqual(budget["zai-org/glm-5.3"], [128000, null]);
     assert.deepEqual(budget["tiny/model"], [1, null]);
+    for (const id of ["unset/cap", "zero/cap", "negative/cap"]) {
+      assert.deepEqual(budget[id], [128000, null], id);
+    }
   });
 
   test("enable(): --model warns the app keeps its own pick; native stays quiet", async () => {
