@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { Model } from "../../api/models.js";
 import { CliError } from "../../cli/errors.js";
 import { agentHome, DEFAULT_BASE_URL, isRoutableBaseUrl, trimSlash } from "../../config.js";
 import { clearAddedState, getAddedState, recordAddedState } from "../snapshot.js";
@@ -284,13 +285,27 @@ function parseAppProviderRow(row: Record<string, string | number | null>): AppPr
   return { id: String(row.id), name: String(row.name), settings, apiKey: bearer?.[1] };
 }
 
+/**
+ * The app sends max_output_tokens as max_tokens, and the gateway rejects a
+ * prompt plus max_tokens over the context window, so the two share it.
+ * Output takes at most half, because a catalog cap can equal the whole
+ * window and leave the prompt nothing. A missing or sub-1 cap writes NULL.
+ */
+function tokenBudget(model: Model): Pick<CopilotAppModel, "maxPromptTokens" | "maxOutputTokens"> {
+  const cap = model.max_output_tokens;
+  const output =
+    typeof cap === "number" && cap >= 1 ? Math.min(cap, Math.floor(model.context_window / 2)) : 0;
+  return {
+    maxPromptTokens: model.context_window - output,
+    maxOutputTokens: output >= 1 ? output : null,
+  };
+}
+
 function copilotAppModels(input: EnableInput): CopilotAppModel[] {
   return input.catalog.map((model) => ({
     id: model.id,
     name: model.name,
-    // The catalog carries no separate output cap; mirror the context
-    // window, the cap the gateway enforces (opencode's policy).
-    contextWindow: model.context_window,
+    ...tokenBudget(model),
     // NULL hides the app's effort picker (live-app finding); an empty
     // JSON array is the honest "no efforts" answer.
     reasoningEfforts: JSON.stringify(model.reasoning_efforts ?? []),

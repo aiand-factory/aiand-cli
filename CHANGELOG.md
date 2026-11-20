@@ -115,6 +115,13 @@ breaking changes while the command surface settles.
   shown as at most 500 characters (a non-JSON body as its status text plus
   first line), and `aiand logs` stops paging when a page adds no rows or the
   cursor repeats, instead of looping forever.
+- Chat in the GitHub Copilot app no longer fails with `400 max_tokens must
+  be an integer of at least 1 and below the model's context window`.
+  `aiand copilot-app on` set each model's output limit to its whole context
+  window, which the app sends as `max_tokens`. It now writes the output limit
+  ai& publishes for the model, capped at half the context window, and gives
+  the prompt the rest, so prompt and output together fit the model. Run
+  `aiand copilot-app on` again to update a database set up earlier.
 - Ctrl+C inside an agent started by aiand reaches only the agent. aiand used
   to exit and delete the session's settings on the first press, handing the
   prompt back while the agent kept running (Claude Code uses that press to
