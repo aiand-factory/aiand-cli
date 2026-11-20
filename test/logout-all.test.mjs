@@ -966,7 +966,17 @@ describe("logout --all only wipes a directory that proves it is aiand's (serial)
       await config.saveConfig({ profile: "default", profiles: { default: {} } });
       writeFileSync(join(other, ".aiand-config"), copied);
       writeFileSync(join(other, "notes.txt"), "mine\n");
-      await assert.rejects(() => logoutAll({ force: true }), /not aiand's/);
+      await assert.rejects(
+        () => logoutAll({ force: true }),
+        (error) => {
+          assert.match(error.message, /not aiand's config directory\.$/);
+          assert.match(
+            error.hint,
+            /records another id[\s\S]*delete its \.aiand-config file, run aiand login with AIAND_CONFIG_DIR set to it/,
+          );
+          return true;
+        },
+      );
       assert.equal(readFileSync(join(other, "notes.txt"), "utf8"), "mine\n");
       assert.equal(existsSync(join(other, "config.json")), true);
     });

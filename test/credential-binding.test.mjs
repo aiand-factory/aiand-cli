@@ -721,9 +721,10 @@ describe("in-process gates", { concurrency: 1 }, () => {
       });
       assert.notEqual(refused.code, 0);
       assert.match(refused.stderr, /it is not aiand's config directory\./);
+      // aiand never rewrites the marker, so a login alone would not make the two agree.
       assert.match(
         refused.stderr,
-        /first run aiand logout --profile <name>[\s\S]*Then run aiand login/,
+        /records another id[\s\S]*first run aiand logout --profile <name>[\s\S]*Then delete its \.aiand-config file, run aiand login/,
       );
       assert.equal(A.seen.length, before, "the refusal sends nothing");
     });

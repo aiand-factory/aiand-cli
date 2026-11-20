@@ -1,4 +1,4 @@
-import { lstat, readFile, realpath, unlink } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
@@ -23,7 +23,12 @@ import {
   redactUrl,
   unprovenIssuer,
 } from "../config.js";
-import { CONFIG_MARKER_FILE, holdsSignInFile, holdsUnvouchedSignIn } from "../config-files.js";
+import {
+  CONFIG_MARKER_FILE,
+  readConfigId,
+  readMarkerId,
+  SIGN_IN_STORE_FILES,
+} from "../config-files.js";
 import { agentHome, pathIsInside } from "../fsutil.js";
 import { deleteSecret } from "../secrets.js";
 import {
@@ -68,7 +73,7 @@ type AgentOutcome = {
  * token is overwritten, nothing here can revoke the key it minted.
  */
 const LOG_OUT_FIRST =
-  "first run aiand logout --profile <name> with AIAND_CONFIG_DIR set to it, for each profile its credentials.json names: that revokes each key aiand minted where it was issued, and a login there now would replace a sign-in without revoking it. Then run aiand login there and aiand logout --all again.";
+  "first run aiand logout --profile <name> with AIAND_CONFIG_DIR set to it, for each profile its credentials.json names: that revokes each key aiand minted where it was issued, and a login there now would replace a sign-in without revoking it.";
 
 /** An error's text for a report: it can quote a file or a response, so one safe line with no key in it. */
 const message = (error: unknown): string =>
@@ -101,17 +106,22 @@ async function wipeTarget(): Promise<string | null> {
     });
   }
   if (!(await provesAiandConfigDir(real))) {
-    if (await holdsUnvouchedSignIn(real)) {
-      throw new CliError(
-        `Refusing to delete from ${real}: it is not aiand's config directory, or a sign-in there never finished: it holds sign-in files but no config.json.`,
-        {
-          hint: `Sign-in files (credentials.json, secret-store.*) go only beside aiand's own config.json, one carrying the same id as ${CONFIG_MARKER_FILE}; aiand login writes both. If they are aiand's (a sign-in that stopped before config.json was written), ${LOG_OUT_FIRST} Otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
-        },
-      );
-    }
-    throw new CliError(`Refusing to delete from ${real}: it is not aiand's config directory.`, {
-      hint: `aiand's own directory has a config.json with a profile and profiles, and a ${CONFIG_MARKER_FILE} file carrying the same id as that config.json. This one has neither, and a ${CONFIG_MARKER_FILE} file that is empty or copied from elsewhere proves nothing. If it really is aiand's, ${(await holdsSignInFile(real)) ? LOG_OUT_FIRST : "run aiand login with AIAND_CONFIG_DIR set to it, so aiand writes them, then run aiand logout --all again."} Otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
-    });
+    const names = await readdir(real).catch((): string[] => []);
+    const signIn = names.some((name) => SIGN_IN_STORE_FILES.has(name));
+    const unvouched = signIn && !names.includes("config.json");
+    // The dir is unproven, so two ids here are two different ones.
+    const otherId = (await readMarkerId(real)) !== null && (await readConfigId(real)) !== null;
+    // aiand never rewrites a marker that names an id, so a login fixes a mismatch only once it is gone.
+    const there = signIn ? "there" : "with AIAND_CONFIG_DIR set to it";
+    const relogin = otherId
+      ? `delete its ${CONFIG_MARKER_FILE} file, run aiand login ${there}, and run aiand logout --all again.`
+      : `run aiand login ${there}, so aiand writes them, and run aiand logout --all again.`;
+    throw new CliError(
+      `Refusing to delete from ${real}: it is not aiand's config directory${unvouched ? ", or a sign-in there never finished: it holds sign-in files but no config.json" : ""}.`,
+      {
+        hint: `aiand's own directory has a config.json with a profile and profiles, and a ${CONFIG_MARKER_FILE} file carrying the same id as that config.json; aiand login writes both. A ${CONFIG_MARKER_FILE} file that is empty or copied from elsewhere proves nothing, and sign-in files (credentials.json, secret-store.*) count only beside that config.json.${otherId ? ` This one's config.json records another id than its ${CONFIG_MARKER_FILE} file, so one of them came from another install.` : ""} If it really is aiand's, ${signIn ? `${LOG_OUT_FIRST} Then ${relogin}` : relogin} Otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
+      },
+    );
   }
   return real;
 }
