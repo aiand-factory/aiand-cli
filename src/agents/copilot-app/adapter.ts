@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { Model } from "../../api/models.js";
 import { CliError } from "../../cli/errors.js";
 import { agentHome, DEFAULT_BASE_URL, isRoutableBaseUrl, trimSlash } from "../../config.js";
 import { clearAddedState, getAddedState, recordAddedState } from "../snapshot.js";
@@ -283,17 +284,28 @@ function parseAppProviderRow(row: Record<string, string | number | null>): AppPr
   return { id: String(row.id), name: String(row.name), settings, apiKey: bearer?.[1] };
 }
 
+/**
+ * The app sends max_output_tokens as max_tokens, and the model server rejects
+ * a prompt plus max_tokens over the context window, so the two must share it.
+ * Output takes at most half, which a catalog cap equal to the whole window
+ * (Motif 3) would otherwise starve the prompt of; the prompt gets the rest.
+ */
+function tokenBudget(model: Model) {
+  const output =
+    model.max_output_tokens === null
+      ? 0
+      : Math.min(model.max_output_tokens, Math.floor(model.context_window / 2));
+  return {
+    maxPromptTokens: model.context_window - output,
+    maxOutputTokens: output >= 1 ? output : null,
+  };
+}
+
 function copilotAppModels(input: EnableInput): CopilotAppModel[] {
   return input.catalog.map((model) => ({
     id: model.id,
     name: model.name,
-    contextWindow: model.context_window,
-    // The app sends this as max_tokens, and the gateway rejects one at or
-    // above the context window, which a catalog cap can equal.
-    maxOutputTokens:
-      model.max_output_tokens === null
-        ? null
-        : Math.min(model.max_output_tokens, model.context_window - 1),
+    ...tokenBudget(model),
     // NULL hides the app's effort picker (live-app finding); an empty
     // JSON array is the honest "no efforts" answer.
     reasoningEfforts: JSON.stringify(model.reasoning_efforts ?? []),

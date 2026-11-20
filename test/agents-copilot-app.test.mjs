@@ -188,7 +188,7 @@ describe("copilot-app adapter", () => {
     const glm = models.find((row) => row.model_id === "zai-org/glm-5.3");
     assert.equal(glm.wire_model, "zai-org/glm-5.3");
     assert.equal(glm.display_name, "zai-org/glm-5.3");
-    assert.equal(glm.max_prompt_tokens, 128000);
+    assert.equal(glm.max_prompt_tokens, 128000 - 32768);
     assert.equal(glm.max_output_tokens, 32768, "the published output cap, not the context window");
     assert.equal(glm.wire_api_override, "completions");
     assert.deepEqual(JSON.parse(glm.supported_reasoning_efforts), []);
@@ -198,22 +198,28 @@ describe("copilot-app adapter", () => {
     assert.equal(rows("SELECT * FROM model_providers").length, 2, "foreign provider survives");
   });
 
-  test("enable(): keeps the output cap below the context window, and NULL when unpublished", async () => {
-    // The gateway rejects a max_tokens at or above the context window, and the
-    // app sends max_output_tokens as max_tokens.
+  test("enable(): splits each context window so prompt plus output fits", async () => {
     createAppDb();
     const catalog = [
       catalogModel("motif-technologies/motif-3", {
         context_window: 262144,
         max_output_tokens: 262144,
       }),
+      catalogModel("deepseek-ai/deepseek-v4.1-flash-1017", {
+        context_window: 1048576,
+        max_output_tokens: 384000,
+      }),
       catalogModel("zai-org/glm-5.3", { max_output_tokens: null }),
+      catalogModel("tiny/model", { context_window: 1, max_output_tokens: 1 }),
     ];
     await copilotAppAdapter.enable(enableInput({ catalog }));
-    const byId = Object.fromEntries(ourModels().map((row) => [row.model_id, row]));
-    assert.equal(byId["motif-technologies/motif-3"].max_output_tokens, 262143);
-    assert.equal(byId["motif-technologies/motif-3"].max_prompt_tokens, 262144);
-    assert.equal(byId["zai-org/glm-5.3"].max_output_tokens, null);
+    const budget = Object.fromEntries(
+      ourModels().map((row) => [row.model_id, [row.max_prompt_tokens, row.max_output_tokens]]),
+    );
+    assert.deepEqual(budget["motif-technologies/motif-3"], [131072, 131072]);
+    assert.deepEqual(budget["deepseek-ai/deepseek-v4.1-flash-1017"], [664576, 384000]);
+    assert.deepEqual(budget["zai-org/glm-5.3"], [128000, null]);
+    assert.deepEqual(budget["tiny/model"], [1, null]);
   });
 
   test("enable(): --model warns the app keeps its own pick; native stays quiet", async () => {
