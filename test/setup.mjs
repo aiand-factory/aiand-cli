@@ -22,6 +22,8 @@
 // - PI_CODING_AGENT_DIR / PI_CODING_AGENT_SESSION_DIR unset: the Pi adapter
 //   honours them, so a developer's own setting would point tests at their
 //   real Pi config and session history.
+// - JOUZU_HOME unset: the Jouzu adapter honours it, so a developer's own
+//   setting would point tests at their real Jouzu config.
 // - PI_CONFIG_DIR / XDG_DATA_HOME unset: the OMP adapter honours them
 //   (config-root rename, XDG-migrated session dir), same reason.
 // - COPILOT_HOME / COPILOT_PROVIDERS_CONFIG / COPILOT_MODEL /
@@ -87,6 +89,7 @@ process.env.AIAND_CLAUDE_RELOAD_MS = "0";
 delete process.env.CLAUDE_CONFIG_DIR;
 delete process.env.CODEX_HOME;
 delete process.env.HERMES_HOME;
+delete process.env.JOUZU_HOME;
 delete process.env.PI_CODING_AGENT_DIR;
 delete process.env.PI_CODING_AGENT_SESSION_DIR;
 delete process.env.PI_CONFIG_DIR;

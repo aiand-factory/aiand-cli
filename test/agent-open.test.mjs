@@ -24,7 +24,7 @@ exit 42`;
 let binDir;
 const box = withTestEnv("aiand-open-", (dir) => {
   binDir = join(dir, "bin");
-  for (const agent of ["opencode", "claude", "codex", "hermes"])
+  for (const agent of ["opencode", "claude", "codex", "hermes", "jouzu"])
     plantStub(binDir, agent, CAPTURE_STUB);
 });
 
@@ -110,6 +110,35 @@ describe("aiand <agent> opens the agent", () => {
     rmSync(join(state.cfg, "model-catalog.json"));
     assert.equal((await cli(["opencode"], state)).code, 42);
     assert.deepEqual(inline(), { model: "aiand/zai-org/glm-5.3" });
+  });
+
+  test("a fresh jouzu is wired in Jouzu's dir and opens on the ai& model it wired", async () => {
+    const state = freshState();
+    const { code, stderr } = await cli(["jouzu", "fix the build"], state, {
+      JOUZU_HOME: join(state.home, "jz"),
+    });
+    assert.equal(code, 42);
+    assert.match(stderr, /Jouzu is now using ai&\./);
+    const settings = JSON.parse(
+      readFileSync(join(state.home, "jz", "agent", "settings.json"), "utf8"),
+    );
+    assert.equal(settings.defaultProvider, "aiand");
+    assert.deepEqual(capturedArgs(state), [
+      "--provider",
+      "aiand",
+      "--model",
+      settings.defaultModel,
+      "fix the build",
+    ]);
+  });
+
+  test("aiand jz is Jouzu, and a model in the args is left to Jouzu", async () => {
+    const state = freshState();
+    const env = { JOUZU_HOME: join(state.home, "jz") };
+    assert.equal((await cli(["jz", "--model", "shisa/x"], state, env)).code, 42);
+    assert.deepEqual(capturedArgs(state), ["--model", "shisa/x"]);
+    assert.equal((await cli(["jz", "doctor"], state, env)).code, 42);
+    assert.deepEqual(capturedArgs(state), ["doctor"]);
   });
 
   test("`--` passes a verb through to the agent", async () => {

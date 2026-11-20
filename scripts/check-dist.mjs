@@ -55,6 +55,9 @@ const { OPENCODE_VERSION } = await import(
 const { PI_VERSION } = await import(
   pathToFileURL(join(repoRoot, "dist", "agents", "pi", "adapter.js")).href
 );
+const { JOUZU_VERSION } = await import(
+  pathToFileURL(join(repoRoot, "dist", "agents", "jouzu", "adapter.js")).href
+);
 const { OMP_VERSION } = await import(
   pathToFileURL(join(repoRoot, "dist", "agents", "omp", "install.js")).href
 );
@@ -79,6 +82,13 @@ const PINS = [
     expected: PI_VERSION,
     message: (pin) =>
       `ci.yml installs pi-coding-agent@${pin} but src/agents/pi/adapter.ts pins ${PI_VERSION}`,
+  },
+  {
+    label: "ci.yml should install a pinned jouzu",
+    regex: /\bjouzu@([0-9A-Za-z.+-]+)/g,
+    expected: JOUZU_VERSION,
+    message: (pin) =>
+      `ci.yml installs jouzu@${pin} but src/agents/jouzu/adapter.ts pins ${JOUZU_VERSION}`,
   },
   // omp installs as a pinned release asset (omp-linux-x64 /
   // omp-windows-x64.exe) from the vX.Y.Z release, digest-checked in

@@ -4,23 +4,13 @@ import { agentHome } from "../../config.js";
 import { readJsoncObject } from "../managed-file.js";
 
 /** The agent config dir: ~/.pi/agent/, or $PI_CODING_AGENT_DIR when set. */
-function piAgentDir(): string {
+export function piAgentDir(): string {
   return process.env.PI_CODING_AGENT_DIR || join(agentHome(), ".pi", "agent");
 }
 
-export function piModelsPath(): string {
-  return join(piAgentDir(), "models.json");
-}
-
-export function piAuthPath(): string {
-  return join(piAgentDir(), "auth.json");
-}
-
-export function piSettingsPath(): string {
+function piSettingsPath(): string {
   return join(piAgentDir(), "settings.json");
 }
-
-export const PI_MANAGED_FILES = [piModelsPath, piAuthPath, piSettingsPath] as const;
 
 /**
  * Where plain `pi` keeps this cwd's sessions: a `sessionDir` from settings
