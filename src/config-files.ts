@@ -54,25 +54,6 @@ export async function readConfigId(real: string): Promise<string | null> {
   }
 }
 
-/** Files aiand writes into its config dir. */
-export const CONFIG_FILES: ReadonlySet<string> = new Set([
-  "config.json",
-  "credentials.json",
-  "credentials-plaintext.json",
-  "secret-store.json",
-  "secret-store.key",
-  "secret-store.dpapi.json",
-  "secret-store.lock",
-  "secret-store.lock.steal",
-  "credentials.lock",
-  "credentials.lock.steal",
-  "wired.json",
-  "finalize.json",
-  "update-check.json",
-  "model-catalog.json",
-  "opencode-api.json",
-]);
-
 /**
  * The files a sign-in is stored in. Other tools keep files by these names
  * too, and losing one is losing a sign-in, so only a `config.json` of
@@ -84,6 +65,21 @@ export const SIGN_IN_STORE_FILES: ReadonlySet<string> = new Set([
   "secret-store.json",
   "secret-store.key",
   "secret-store.dpapi.json",
+]);
+
+/** Files aiand writes into its config dir. A new sign-in store file goes in SIGN_IN_STORE_FILES. */
+export const CONFIG_FILES: ReadonlySet<string> = new Set([
+  "config.json",
+  ...SIGN_IN_STORE_FILES,
+  "secret-store.lock",
+  "secret-store.lock.steal",
+  "credentials.lock",
+  "credentials.lock.steal",
+  "wired.json",
+  "finalize.json",
+  "update-check.json",
+  "model-catalog.json",
+  "opencode-api.json",
 ]);
 
 /** Directories aiand makes in its config dir. */
