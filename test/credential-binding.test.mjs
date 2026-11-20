@@ -646,6 +646,29 @@ describe("in-process gates", { concurrency: 1 }, () => {
     assert.equal(existsSync(join(cfg, "credentials.json")), false);
   });
 
+  test("a sign-in beside a config.json of another install: logout --all says to log out first", async () => {
+    const cfg = seed({ boundTo: boundToA() });
+    // config.json carries an id the marker does not: copied from another install.
+    writeFileSync(
+      join(cfg, "config.json"),
+      `${JSON.stringify({ profile: "default", profiles: { default: {} }, config_id: "0".repeat(32) })}\n`,
+    );
+    const before = A.seen.length;
+    await nothingReachesB(async () => {
+      const refused = await cli(cfg, ["logout", "--all", "--force"], {
+        AIAND_WIPE_OUTSIDE_HOME: "1",
+      });
+      assert.notEqual(refused.code, 0);
+      assert.match(refused.stderr, /it is not aiand's config directory\./);
+      assert.match(
+        refused.stderr,
+        /first run aiand logout --profile <name>[\s\S]*Then run aiand login/,
+      );
+      assert.equal(A.seen.length, before, "the refusal sends nothing");
+    });
+    assert.equal(existsSync(join(cfg, "credentials.json")), true);
+  });
+
   test("logout sends an unbound sign-in nowhere when no config.json says where it was issued", async () => {
     const cfg = seed();
     rmSync(join(cfg, "config.json"));

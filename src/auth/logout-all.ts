@@ -21,7 +21,7 @@ import {
   loadCredential,
   redactUrl,
 } from "../config.js";
-import { CONFIG_MARKER_FILE, holdsUnvouchedSignIn } from "../config-files.js";
+import { CONFIG_MARKER_FILE, holdsSignInFile, holdsUnvouchedSignIn } from "../config-files.js";
 import { agentHome, pathIsInside } from "../fsutil.js";
 import { deleteSecret } from "../secrets.js";
 import {
@@ -61,6 +61,14 @@ type AgentOutcome = {
   error?: string;
 };
 
+/**
+ * Recovery for a refused dir that holds a sign-in. Login replaces a stored
+ * sign-in without revoking it, so logging out comes first: once its refresh
+ * token is overwritten, nothing here can revoke the key it minted.
+ */
+const LOG_OUT_FIRST =
+  "first run aiand logout --profile <name> with AIAND_CONFIG_DIR set to it, for each profile its credentials.json names: that revokes each key aiand minted where it was issued, and a login there now would replace a sign-in without revoking it. Then run aiand login there and aiand logout --all again.";
+
 /** An error's text for a report: it can quote a file or a response, so one safe line with no key in it. */
 const message = (error: unknown): string =>
   redactSecrets(safeLine((error as Error)?.message ?? String(error)));
@@ -96,12 +104,12 @@ async function wipeTarget(): Promise<string | null> {
       throw new CliError(
         `Refusing to delete from ${real}: it is not aiand's config directory, or a sign-in there never finished: it holds sign-in files but no config.json.`,
         {
-          hint: `Sign-in files (credentials.json, secret-store.*) go only beside aiand's own config.json, one carrying the same id as ${CONFIG_MARKER_FILE}; aiand login writes both. If they are aiand's (a sign-in that stopped before config.json was written), first run aiand logout --profile <name> with AIAND_CONFIG_DIR set to it, for each profile its credentials.json names: that revokes each key aiand minted where it was issued, and a login there now would replace a sign-in without revoking it. Then run aiand login there and aiand logout --all again. Otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
+          hint: `Sign-in files (credentials.json, secret-store.*) go only beside aiand's own config.json, one carrying the same id as ${CONFIG_MARKER_FILE}; aiand login writes both. If they are aiand's (a sign-in that stopped before config.json was written), ${LOG_OUT_FIRST} Otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
         },
       );
     }
     throw new CliError(`Refusing to delete from ${real}: it is not aiand's config directory.`, {
-      hint: `aiand's own directory has a config.json with a profile and profiles, and a ${CONFIG_MARKER_FILE} file carrying the same id as that config.json. This one has neither, and a ${CONFIG_MARKER_FILE} file that is empty or copied from elsewhere proves nothing. If it really is aiand's, run aiand login with AIAND_CONFIG_DIR set to it, so aiand writes them, then run aiand logout --all again; otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
+      hint: `aiand's own directory has a config.json with a profile and profiles, and a ${CONFIG_MARKER_FILE} file carrying the same id as that config.json. This one has neither, and a ${CONFIG_MARKER_FILE} file that is empty or copied from elsewhere proves nothing. If it really is aiand's, ${(await holdsSignInFile(real)) ? LOG_OUT_FIRST : "run aiand login with AIAND_CONFIG_DIR set to it, so aiand writes them, then run aiand logout --all again."} Otherwise point AIAND_CONFIG_DIR at aiand's directory.`,
     });
   }
   return real;

@@ -134,6 +134,12 @@ export async function mayMarkConfigDir(root: string): Promise<boolean> {
   );
 }
 
+/** Whether `root` holds a file a sign-in is stored in. */
+export async function holdsSignInFile(root: string): Promise<boolean> {
+  const names = await readdir(root).catch((): string[] => []);
+  return names.some((name) => SIGN_IN_STORE_FILES.has(name));
+}
+
 /** Whether `root` holds a sign-in file but no `config.json` that could vouch for it. */
 export async function holdsUnvouchedSignIn(root: string): Promise<boolean> {
   const names = await readdir(root).catch((): string[] => []);
