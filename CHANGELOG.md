@@ -7,6 +7,8 @@ breaking changes while the command surface settles.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-20
+
 ### Added
 
 - Windows now keeps your key in an OS-backed store: Windows DPAPI, through
@@ -80,6 +82,16 @@ breaking changes while the command surface settles.
   sign-out and says the keys were not revoked. The config directory must sit strictly
   inside HOME, be named `aiand`, and on Windows have no link or junction
   between it and HOME.
+- Jouzu, Shisa AI's terminal coding harness built on Pi, is supported:
+  `aiand jouzu` (or `aiand jz`), `aiand jouzu on|off|status`,
+  `aiand restore jouzu --force`, and key rotation. `on` writes Pi's
+  provider, credential and defaults into Jouzu's own config dir
+  (`$JOUZU_HOME/agent`, or Jouzu's per-platform default), never into Pi's.
+  `aiand jouzu` opens Jouzu on the ai& model it wired, because Jouzu's
+  last-used model would otherwise decide, unless the arguments pick a
+  model or session (`--model`, `--continue`, `--fork` and the like) or run
+  a Jouzu or Pi command (`doctor`, `list`, `install` and the like). There is
+  no `run-agent jouzu`.
 
 ### Changed
 
@@ -641,6 +653,13 @@ breaking changes while the command surface settles.
   naming it, instead of being downloaded whole and then refused without one.
   The limit is 16 MiB for the tarball (a release is a few hundred KiB), 4 MiB
   for `SHA256SUMS` and npm's manifest, and 64 MiB for what the tarball unpacks to.
+- `aiand pi on --model native` after an earlier `aiand pi on` now hands
+  back the `defaultProvider` and `defaultModel` that `on` set, as it does
+  on a fresh config. They used to stay, so ai& kept deciding Pi's model.
+- `aiand pi off` removes Pi's ai& credential last, so an `off` that stops
+  part-way can be run again. After the agent dir moved, it now removes a
+  credential whose marker Pi dropped, and keeps a provider block you
+  edited, as it already did in the current dir.
 
 ### Removed
 

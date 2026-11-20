@@ -3,6 +3,7 @@ import { codexAdapter } from "./codex/adapter.js";
 import { copilotAdapter } from "./copilot/adapter.js";
 import { copilotAppAdapter } from "./copilot-app/adapter.js";
 import { hermesAdapter } from "./hermes/adapter.js";
+import { jouzuAdapter } from "./jouzu/adapter.js";
 import { ompAdapter } from "./omp/adapter.js";
 import { opencodeAdapter } from "./opencode/adapter.js";
 import { piAdapter } from "./pi/adapter.js";
@@ -18,6 +19,7 @@ const registered: AgentAdapter[] = [
   copilotAdapter,
   copilotAppAdapter,
   hermesAdapter,
+  jouzuAdapter,
 ];
 
 export const AGENTS: readonly AgentAdapter[] = registered;

@@ -170,6 +170,7 @@ const SCRUB = [
   "CLAUDE_CONFIG_DIR",
   "CODEX_HOME",
   "HERMES_HOME",
+  "JOUZU_HOME",
   "PI_CODING_AGENT_DIR",
   "PI_CONFIG_DIR",
   "XDG_DATA_HOME",
@@ -210,6 +211,7 @@ async function tmpEnv() {
     "copilot",
     "copilot-app",
     "hermes",
+    "jouzu",
   ]) {
     const stub = join(bin, name);
     writeFileSync(
@@ -594,6 +596,69 @@ try {
     PI_MODELS_BEFORE.equals(readFileSync(piModelsPath)) &&
       PI_AUTH_BEFORE.equals(readFileSync(piAuthPath)) &&
       PI_SETTINGS_BEFORE.equals(readFileSync(piSettingsPath)),
+  );
+
+  // --- jouzu on/off/status ----------------------------------------------------
+  // Jouzu keeps Pi's three files in its own per-platform agent dir. With
+  // JOUZU_HOME scrubbed, AIAND_HOME stands in for the OS home, so this also
+  // checks the dir resolution on each CI platform.
+  const jouzuDir =
+    process.platform === "darwin"
+      ? join(home, "Library", "Application Support", "Jouzu", "agent")
+      : process.platform === "win32"
+        ? join(home, "AppData", "Roaming", "Jouzu", "agent")
+        : join(home, ".config", "jouzu", "agent");
+  mkdirSync(jouzuDir, { recursive: true });
+  const jouzuModelsPath = join(jouzuDir, "models.json");
+  const jouzuAuthPath = join(jouzuDir, "auth.json");
+  const jouzuSettingsPath = join(jouzuDir, "settings.json");
+  writeFileSync(
+    jouzuAuthPath,
+    `${JSON.stringify({ shisa: { type: "api_key", key: "sk-user-shisa" } }, null, 2)}\n`,
+  );
+  writeFileSync(jouzuSettingsPath, `${JSON.stringify({ tuiMode: "regular" }, null, 2)}\n`);
+  const JOUZU_AUTH_BEFORE = readFileSync(jouzuAuthPath);
+  const JOUZU_SETTINGS_BEFORE = readFileSync(jouzuSettingsPath);
+
+  const jouzuOn = JSON.parse(cli("jouzu on --json"));
+  check("jouzu on succeeds", jouzuOn.state === "on" && jouzuOn.agent === "jouzu");
+  const jouzuModels = JSON.parse(readFileSync(jouzuModelsPath, "utf8"));
+  check(
+    "jouzu on writes providers.aiand into Jouzu's own agent dir",
+    jouzuModels.providers?.aiand?.baseUrl === `${baseUrl}/v1` &&
+      jouzuModels.providers?.aiand?.api === "openai-completions",
+    String(jouzuModels.providers?.aiand?.baseUrl),
+  );
+  const jouzuAuth = JSON.parse(readFileSync(jouzuAuthPath, "utf8"));
+  check(
+    "jouzu on bakes the key with the marker and keeps the user's credential",
+    jouzuAuth.aiand?.managedBy === "aiand" && jouzuAuth.shisa?.key === "sk-user-shisa",
+  );
+  check(
+    "jouzu on leaves Pi's own dir alone",
+    !existsSync(join(piDir, "models.json")) ||
+      !JSON.parse(readFileSync(join(piDir, "models.json"), "utf8")).providers?.aiand,
+  );
+  const jouzuStatus = JSON.parse(cli("jouzu status --json"));
+  check(
+    "jouzu status: on with the default model",
+    jouzuStatus.state === "on" && jouzuStatus.model === "zai-org/glm-5.3",
+    JSON.stringify(jouzuStatus),
+  );
+  cli("jouzu off --json");
+  check(
+    "jouzu off restores Jouzu's files and removes the models.json it created",
+    JOUZU_AUTH_BEFORE.equals(readFileSync(jouzuAuthPath)) &&
+      JOUZU_SETTINGS_BEFORE.equals(readFileSync(jouzuSettingsPath)) &&
+      !existsSync(jouzuModelsPath),
+  );
+  cli("jouzu on --json");
+  cli("restore jouzu --force");
+  check(
+    "restore jouzu --force puts the seeded files back",
+    JOUZU_AUTH_BEFORE.equals(readFileSync(jouzuAuthPath)) &&
+      JOUZU_SETTINGS_BEFORE.equals(readFileSync(jouzuSettingsPath)) &&
+      !existsSync(jouzuModelsPath),
   );
 
   // --- omp on/off/status ------------------------------------------------------
@@ -1622,7 +1687,7 @@ INSERT INTO model_providers (id, name, type, settings_json) VALUES ('user-1', 'm
   const { AGENTS } = await import(pathToFileURL(join(ROOT, "dist", "agents", "registry.js")).href);
   const agentIds = AGENTS.map((row) => row.id).sort();
   check(
-    "registry ships exactly claude, codex, copilot, copilot-app, hermes, omp, opencode and pi",
+    "registry ships exactly claude, codex, copilot, copilot-app, hermes, jouzu, omp, opencode and pi",
     JSON.stringify(agentIds) ===
       JSON.stringify([
         "claude",
@@ -1630,6 +1695,7 @@ INSERT INTO model_providers (id, name, type, settings_json) VALUES ('user-1', 'm
         "copilot",
         "copilot-app",
         "hermes",
+        "jouzu",
         "omp",
         "opencode",
         "pi",

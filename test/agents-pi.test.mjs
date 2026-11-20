@@ -526,6 +526,73 @@ describe("pi adapter", () => {
     }
   });
 
+  test("off: a moved dir whose marker a Pi rewrite dropped still loses the credential", async () => {
+    const seed = seedUserFiles();
+    await piAdapter.enable(enableInput());
+    // Pi rewrote auth.json without our unknown key, then the dir moved.
+    const auth = readJson(authPath());
+    delete auth.aiand.managedBy;
+    writeJson(authPath(), auth);
+    process.env.PI_CODING_AGENT_DIR = join(process.env.AIAND_HOME, "moved", "agent");
+    try {
+      const result = await piAdapter.disable();
+      assert.equal(result.stripped, true);
+      // The routing the record names proves the stale credential ours.
+      assert.equal(readJson(authPath()).aiand, undefined, "no baked key left behind");
+      assert.equal(readJson(authPath()).openai.key, "sk-user-openai");
+      assert.equal(readFileSync(modelsPath()).equals(seed.models), true);
+      assert.equal(readFileSync(settingsPath()).equals(seed.settings), true);
+    } finally {
+      delete process.env.PI_CODING_AGENT_DIR;
+    }
+  });
+
+  test("off: a moved dir's block the user reshaped (same baseUrl) is theirs", async () => {
+    seedUserFiles();
+    await piAdapter.enable(enableInput());
+    const models = readJson(modelsPath());
+    models.providers.aiand.api = "openai-responses";
+    writeJson(modelsPath(), models);
+    const staleModels = readFileSync(modelsPath());
+    process.env.PI_CODING_AGENT_DIR = join(process.env.AIAND_HOME, "moved", "agent");
+    try {
+      const result = await piAdapter.disable();
+      assert.ok(result.notes.some((n) => n.includes("left providers.aiand in")));
+      assert.equal(readFileSync(modelsPath()).equals(staleModels), true);
+    } finally {
+      delete process.env.PI_CODING_AGENT_DIR;
+    }
+  });
+
+  test("off: a retry after a part-way off finishes, with the marker removed last", async () => {
+    const seed = seedUserFiles();
+    await piAdapter.enable(enableInput());
+    // What a first off leaves when it stops before auth.json: the block is
+    // gone and the defaults are handed back, but the marked credential
+    // (removed last) is still there.
+    const models = readJson(modelsPath());
+    delete models.providers.aiand;
+    writeJson(modelsPath(), models);
+    writeFileSync(settingsPath(), seed.settings);
+    const result = await piAdapter.disable();
+    assert.equal(result.stripped, true);
+    assert.ok(
+      !result.notes.some((n) => n.includes("left providers.aiand")),
+      result.notes.join("; "),
+    );
+    assert.equal(readFileSync(authPath()).equals(seed.auth), true);
+    assert.equal(existsSync(addedRecord()), false);
+  });
+
+  test("on, then on --model native: Pi's own defaults come back", async () => {
+    const seed = seedUserFiles();
+    await piAdapter.enable(enableInput());
+    assert.equal(readJson(settingsPath()).defaultProvider, "aiand");
+    await piAdapter.enable(enableInput({ model: "native" }));
+    assert.equal(readFileSync(settingsPath()).equals(seed.settings), true);
+    assert.ok(readJson(modelsPath()).providers.aiand, "the provider stays wired");
+  });
+
   // restore --force refused the relocated paths the
   // manifest still holds once the relocation env was unset
   test("managedFiles(): the recorded paths survive a config-dir move for restore", async () => {

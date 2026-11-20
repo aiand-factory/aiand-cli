@@ -30,6 +30,7 @@ import {
   CLOSED_URL,
   catalogModel,
   cliEnv,
+  enableInput,
   plantStub,
   runCli,
   withEnv,
@@ -42,6 +43,8 @@ const { makeOverlayDir, sweepOverlays } = await import("../dist/agents/overlays.
 const config = await import("../dist/config.js");
 const snapshot = await import("../dist/agents/snapshot.js");
 const copilotApp = await import("../dist/agents/copilot-app/adapter.js");
+const { piAdapter } = await import("../dist/agents/pi/adapter.js");
+const { jouzuAdapter } = await import("../dist/agents/jouzu/adapter.js");
 
 registerAuthStub();
 
@@ -505,6 +508,38 @@ describe("logout --all (serial)", { concurrency: 1 }, () => {
     const captured = await runAll({});
     assert.match(cliStdout(captured), /did not exist/);
     assert.ok(!readFileSync(opencodePath(), "utf8").includes("sk-x"));
+  });
+
+  test("strips Jouzu like Pi: each agent dir loses ai&'s key and keeps the user's", async () => {
+    await seedMachine();
+    const wire = (adapter) =>
+      adapter.enable(
+        enableInput({
+          apiKey: "sk-work-minted",
+          catalog: [catalogModel("zai-org/glm-5.3")],
+          baseUrl: "https://api.aiand.com",
+        }),
+      );
+    const jouzuAuth = jouzuAdapter.managedFiles()[1];
+    mkdirSync(dirname(jouzuAuth), { recursive: true });
+    writeFileSync(jouzuAuth, '{"shisa":{"type":"api_key","key":"sk-user-shisa"}}\n');
+    await wire(piAdapter);
+    await wire(jouzuAdapter);
+    assert.match(readFileSync(jouzuAuth, "utf8"), /sk-work-minted/);
+
+    const captured = await runAll({ json: true });
+    const report = JSON.parse(cliStdout(captured));
+
+    assert.equal(report.complete, true, JSON.stringify(report));
+    assert.deepEqual(report.keys_left_on_disk, []);
+    for (const id of ["pi", "jouzu"]) {
+      assert.equal(report.agents.find((a) => a.agent === id)?.stripped, true, id);
+    }
+    const auth = JSON.parse(readFileSync(jouzuAuth, "utf8"));
+    assert.equal(auth.aiand, undefined);
+    assert.equal(auth.shisa.key, "sk-user-shisa", "the user's own credential stays");
+    const piAuth = piAdapter.managedFiles()[1];
+    assert.ok(!existsSync(piAuth) || !readFileSync(piAuth, "utf8").includes("sk-work-minted"));
   });
 });
 
