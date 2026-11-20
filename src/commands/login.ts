@@ -1,5 +1,6 @@
 import { CREDENTIAL_SOURCE } from "../auth/identity.js";
 import { browserLogin, deviceLogin, pasteLogin } from "../auth/login.js";
+import { noteReplacedSignIn, type ReplacedSignIn, retireReplacedSignIn } from "../auth/replace.js";
 import { bool, parse, str } from "../cli/args.js";
 import { CliError } from "../cli/errors.js";
 import { json, out, safeLine, style } from "../cli/output.js";
@@ -15,6 +16,7 @@ Options
   --base-url <url>    point at a different API endpoint
   --profile <name>    store the session under this profile
   --force             sign in again even if this profile already has a session
+  --keep-remote       when replacing a session, keep its key valid on the server
   --paste             paste an existing ai& API key (masked input)
   --with-token        read the key from stdin (aiand login --with-token < key.txt)
 
@@ -22,11 +24,16 @@ The default path opens your browser and signs in. Over SSH, or when browser
 sign-in is unavailable, it uses device login (approve a code in any browser);
 if that also fails (service unreachable) an interactive terminal offers to
 paste a key instead. Paste paths validate the key against the
-API first; a pasted key is never rotated or revoked by this CLI.`;
+API first; a pasted key is never rotated or revoked by this CLI.
+
+Signing in again replaces the profile's session. Once the new sign-in is
+stored, the key the old session minted is revoked where it was issued, as
+\`aiand logout\` would; a failed or cancelled sign-in keeps the old session.`;
 
 export async function run(argv: string[]): Promise<void> {
   const parsed = parse(argv, {
     force: { type: "boolean", default: false },
+    "keep-remote": { type: "boolean", default: false },
     paste: { type: "boolean", default: false },
     "with-token": { type: "boolean", default: false },
   });
@@ -50,7 +57,7 @@ export async function run(argv: string[]): Promise<void> {
     if (isInteractive()) {
       const email = safeLine(existing.user?.email ?? "unknown");
       const again = await confirm(
-        `Profile ${profile.name} is already signed in as ${email}. Sign in again?`,
+        `Profile ${profile.name} is already signed in as ${email}. Sign in again and replace it?`,
         {
           default: false,
         },
@@ -66,16 +73,22 @@ export async function run(argv: string[]): Promise<void> {
     }
   }
 
+  const replaced: ReplacedSignIn | null = existing
+    ? await noteReplacedSignIn(profile.name, existing)
+    : null;
+
   if (pasteMode) {
-    return pasteLogin({
+    await pasteLogin({
       profile: profile.name,
       fromStdin: bool(parsed, "with-token"),
       interactive: bool(parsed, "paste"),
       json: bool(parsed, "json"),
     });
+  } else if (isInteractive()) {
+    await browserLogin({ profile: profile.name, json: bool(parsed, "json") });
+  } else {
+    await deviceLogin({ profile: profile.name, json: bool(parsed, "json") });
   }
 
-  if (isInteractive()) return browserLogin({ profile: profile.name, json: bool(parsed, "json") });
-
-  return deviceLogin({ profile: profile.name, json: bool(parsed, "json") });
+  if (replaced) await retireReplacedSignIn(replaced, { keepRemote: bool(parsed, "keep-remote") });
 }

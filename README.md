@@ -162,6 +162,13 @@ reach ai&, you stay signed in so you can run `logout` again; `--keep-remote`
 forgets the key here without revoking it. A key you pasted in is only removed
 from this machine: revoke it in the [console](https://console.aiand.com/api-keys).
 
+Signing in again (`aiand login --force`, or yes to "Sign in again and replace
+it?") revokes the key the old sign-in created, once the new one is stored. A
+sign-in that fails or is cancelled keeps the old one. If the revoke cannot
+reach ai&, the new sign-in still stands and aiand says so: revoke the old key
+in the console. `--keep-remote` keeps the old key valid. A pasted key is never
+revoked.
+
 Keys expire. aiand rotates one automatically in its last 3 days, or right away
 if the server rejects it.
 

@@ -7,6 +7,15 @@ breaking changes while the command surface settles.
 
 ## [Unreleased]
 
+### Changed
+
+- Signing in again revokes the key the old sign-in created. `aiand login
+  --force`, or yes to "Sign in again and replace it?", used to leave that key
+  valid with nothing on the machine able to revoke it. The revoke runs after
+  the new sign-in is stored and goes to where the old key was issued, so a
+  failed or cancelled sign-in keeps the old one. `--keep-remote` keeps the old
+  key valid. A pasted key is never revoked.
+
 ## [0.8.0] - 2026-11-20
 
 ### Added
