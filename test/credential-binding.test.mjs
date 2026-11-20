@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import test, { after, before, describe } from "node:test";
@@ -619,6 +619,60 @@ describe("in-process gates", { concurrency: 1 }, () => {
     const revokes = A.seen.slice(before).filter((r) => r.path === "/auth/device/logout");
     assert.equal(revokes.length, 1);
     assert.match(revokes[0].body, /rt-real/);
+  });
+
+  test("a sign-in left with no config.json: logout --all says to log out first, and logout revokes at the issuer", async () => {
+    const cfg = seed({ boundTo: boundToA() });
+    rmSync(join(cfg, "config.json"));
+    rmSync(join(cfg, ".aiand-config"));
+    const before = A.seen.length;
+    await nothingReachesB(async () => {
+      const refused = await cli(cfg, ["logout", "--all", "--force"], {
+        AIAND_WIPE_OUTSIDE_HOME: "1",
+      });
+      assert.notEqual(refused.code, 0);
+      // A login first would replace the sign-in without revoking its key.
+      assert.match(
+        refused.stderr,
+        /first run aiand logout --profile <name>[\s\S]*Then run aiand login/,
+      );
+      assert.equal(A.seen.length, before, "the refusal sends nothing");
+      const { code, stderr } = await cli(cfg, ["logout", "--revoke"], { AIAND_BASE_URL: B.url });
+      assert.equal(code, 0, stderr);
+    });
+    const revokes = A.seen.slice(before).filter((r) => r.path === "/auth/device/logout");
+    assert.equal(revokes.length, 1);
+    assert.match(revokes[0].body, /rt-real/);
+    assert.equal(existsSync(join(cfg, "credentials.json")), false);
+  });
+
+  test("logout sends an unbound sign-in nowhere when no config.json says where it was issued", async () => {
+    const cfg = seed();
+    rmSync(join(cfg, "config.json"));
+    let fetched = 0;
+    await withEnv({ AIAND_CONFIG_DIR: cfg, AIAND_HOME: join(cfg, "home") }, () =>
+      withFetch(
+        async () => {
+          fetched += 1;
+          return new Response("{}");
+        },
+        async () => {
+          const muted = captureStdio({ mute: true });
+          try {
+            await assert.rejects(
+              logout({ profile: "default", revoke: true }),
+              /does not record where it was issued/,
+            );
+            assert.deepEqual(secretOf(cfg), { access_token: "sk-real", refresh_token: "rt-real" });
+            await logout({ profile: "default", keepRemote: true });
+          } finally {
+            muted.restore();
+          }
+        },
+      ),
+    );
+    assert.equal(fetched, 0);
+    assert.equal(existsSync(join(cfg, "credentials.json")), false);
   });
 
   test("a pasted key records the endpoint it was validated against", async () => {

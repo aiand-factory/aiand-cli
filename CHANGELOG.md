@@ -44,7 +44,13 @@ breaking changes while the command surface settles.
   write into it. Sign-in files (`credentials.json`, `secret-store.*`) need
   that `config.json` beside them: the marker alone vouches only for caches,
   so a directory holding another tool's `credentials.json` and no
-  `config.json` is refused, and says so. A `locks` or `snapshots` folder
+  `config.json` is refused, and says so. If those files are aiand's (a
+  sign-in interrupted before `config.json` was written), it says to run
+  `aiand logout --profile <name>` there first, which revokes each key where
+  it was issued, since a new `aiand login` would replace the sign-in without
+  revoking it. In such a directory, `aiand logout` does not send a sign-in
+  that records no issuer anywhere: it keeps it and points to the console and
+  `--keep-remote`. A `locks` or `snapshots` folder
   keeps whatever aiand did not put in it. The directory is checked again
   right before anything is deleted from it, so one swapped for a link while a
   slow revoke ran is refused. Session folders it could not delete, a temp
