@@ -8,7 +8,6 @@ import {
   NotLoggedInError,
   SYNTHETIC_STATUS,
 } from "../cli/errors.js";
-import { err, style } from "../cli/output.js";
 import { INVALID_KEY_MESSAGE, isValidKeyShape, redactSecrets } from "../cli/redact.js";
 import {
   bindCredential,
@@ -23,7 +22,8 @@ import {
   saveCredential,
   storedBinding,
 } from "../config.js";
-import { configDir, withFileLock } from "../fsutil.js";
+import { withFileLock } from "../filelock.js";
+import { configDir } from "../fsutil.js";
 import { DAY_SECONDS, nowSeconds } from "../time.js";
 
 const ROTATE_BEFORE_SECONDS = 3 * DAY_SECONDS;
@@ -246,12 +246,12 @@ async function refresh(
     // keep a key that expires (or is revoked) while the CLI moves on. Only those
     // wired for this credential's own API origin, and only where the config still
     // holds exactly the key it replaced.
-    const { rebakeForBinding } = await import("../agents/rebake.js");
-    for (const note of await rebakeForBinding(next.access_token, profile.name, binding, {
-      previousKey: current.access_token,
-    })) {
-      err(style.dim(`[${note.agent}] ${note.note}`));
-    }
+    const { printRebakeNotes, rebakeForBinding } = await import("../agents/rebake.js");
+    printRebakeNotes(
+      await rebakeForBinding(next.access_token, profile.name, binding, {
+        previousKey: current.access_token,
+      }),
+    );
     return { token: next.access_token, credential: next };
   });
 

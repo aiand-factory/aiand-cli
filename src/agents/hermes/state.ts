@@ -59,7 +59,10 @@ export type HermesRecord = {
   createdEnv?: boolean;
   createdConfig?: boolean;
   createdPlugin?: boolean;
-  /** User ANTHROPIC_* lines enable() set aside; off appends them back. */
+  /**
+   * User ANTHROPIC_* lines an older aiand moved out of .env into this record;
+   * off appends them back. Current `on` comments them out in place instead.
+   */
   strippedEnvLines?: string[];
 };
 

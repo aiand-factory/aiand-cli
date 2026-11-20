@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { type RebakeNote, rebakeForBinding } from "../agents/rebake.js";
+import { printRebakeNotes, rebakeForBinding } from "../agents/rebake.js";
 import { getUser, listOrgs, validateKey } from "../api/account.js";
 import { assertValidKey, openSession, type Session } from "../api/client.js";
 import {
@@ -12,7 +12,16 @@ import {
 import { openBrowser } from "../cli/browser.js";
 import { ApiError, CliError, EXIT, loginCancelled, SYNTHETIC_STATUS } from "../cli/errors.js";
 import { link } from "../cli/links.js";
-import { err, fields, out, spinner, style } from "../cli/output.js";
+import {
+  err,
+  fields,
+  out,
+  safeLine,
+  sanitizeForTerminal,
+  spinner,
+  style,
+  styled,
+} from "../cli/output.js";
 import { confirm, isInteractive, readSecret } from "../cli/prompt.js";
 import { INVALID_KEY_MESSAGE, isValidKeyShape } from "../cli/redact.js";
 import type { PromptInput, PromptOutput } from "../cli/select.js";
@@ -34,12 +43,6 @@ import { fileTierNotOwnerOnly } from "../secrets.js";
 import { nowSeconds } from "../time.js";
 import { type BrowserFlowResult, signInViaLocalhostCallback } from "./browser.js";
 import { CREDENTIAL_SOURCE, storageLabel } from "./identity.js";
-
-function printRebakeNotes(notes: RebakeNote[]): void {
-  for (const note of notes) {
-    err(style.dim(`[${note.agent}] ${note.note}`));
-  }
-}
 
 /** Server-side name for a key minted on this machine. */
 const defaultKeyName = (): string => `aiand@${hostname() || "cli"}`;
@@ -104,7 +107,7 @@ export async function deviceLogin(opts: DeviceLoginOptions = {}): Promise<void> 
   // the code/URL a human follows go to stderr, like browserLogin's status.
   const show = opts.json ? err : out;
   show();
-  show(`  ${style.dim("Your code ")}  ${style.bold(style.cyan(deviceStart.user_code))}`);
+  show(`  ${style.dim("Your code ")}  ${style.bold(style.cyan(safeLine(deviceStart.user_code)))}`);
   show(`  ${style.dim("Approve at")}  ${link(url)}`);
   show();
   // Over SSH a browser opened here isn't the user's; the URL above is enough.
@@ -159,7 +162,7 @@ async function degradeToPaste(
   if (!recoverable || !isInteractive() || opts.json) throw error;
   err(
     style.yellow(
-      `Device sign-in failed while ${doing} (${(error as Error).message}) — paste a key instead.`,
+      `Device sign-in failed while ${doing} (${safeLine((error as Error).message)}) — paste a key instead.`,
     ),
   );
   const ok = await confirm("Paste a key instead?", {
@@ -199,7 +202,7 @@ export async function browserLogin(opts: DeviceLoginOptions = {}): Promise<void>
       open: opts.open,
       timeoutMs: opts.timeoutMs,
       signal: controller.signal,
-      onStatus: (line) => err(style.dim(line)),
+      onStatus: (line) => err(style.dim(sanitizeForTerminal(line))),
     });
   } finally {
     process.removeListener("SIGINT", onInterrupt);
@@ -212,7 +215,7 @@ export async function browserLogin(opts: DeviceLoginOptions = {}): Promise<void>
     if (!result.unsupported) {
       err(
         style.dim(
-          `Browser sign-in didn't complete (${result.failure}) — continuing with a device code.`,
+          `Browser sign-in didn't complete (${safeLine(result.failure)}) — continuing with a device code.`,
         ),
       );
     }
@@ -276,10 +279,10 @@ async function completeSignIn(
   out(style.green("Signed in."));
   out();
   fields([
-    ["email", user.email || style.dim("unknown")],
-    ["org", org ? `${org.name} ${style.dim(`(${org.id})`)}` : style.dim("none")],
+    ["email", user.email ?? styled(style.dim, "unknown")],
+    ["org", org ? [`${org.name} `, styled(style.dim, `(${org.id})`)] : styled(style.dim, "none")],
     ["profile", profile.name],
-    ["key", style.dim(maskKey(session.token))],
+    ["key", styled(style.dim, maskKey(session.token))],
   ]);
 }
 
@@ -399,7 +402,7 @@ export async function pasteLogin(opts: PasteLoginOptions = {}): Promise<void> {
   out(style.green("Signed in with a pasted key."));
   out();
   fields([
-    ["email", user.email || style.dim("unknown")],
+    ["email", user.email || styled(style.dim, "unknown")],
     ["profile", profile.name],
     ["source", "pasted key"],
     ["storage", storageLabel(storage, fileTierNotOwnerOnly() ? { owner_only: false } : null)],

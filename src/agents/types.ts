@@ -80,6 +80,9 @@ export type AgentAdapter = {
   aliases?: string[];
   detect(): DetectResult; // which/where probe
   managedFiles(): string[]; // absolute paths this adapter touches
+  carriesWiring?(text: string): boolean; // a managed file's text holds our marker
+  // ^ Such a file is never snapshotted: it is not a pre-aiand state. Keys are
+  // checked separately, so an adapter without a marker leaves this out.
   probe(): Promise<ProbeResult>; // read real config, no flags trusted
   enable(input: EnableInput): Promise<EnableResult>;
   enableGuard?(opts: GuardOptions): Promise<void>;
