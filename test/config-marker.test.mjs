@@ -19,6 +19,7 @@ const env = withTestEnv("aiand-config-marker-", (dir) => {
 });
 const { writeFileAtomic } = await import("../dist/fsutil.js");
 const { loadConfig, saveConfig } = await import("../dist/config.js");
+const { provesAiandConfigDir } = await import("../dist/auth/config-wipe.js");
 
 const MARKER = ".aiand-config";
 const DOCKER_CONFIG = '{"auths":{"registry.example":{}},"credsStore":"desktop"}\n';
@@ -179,14 +180,29 @@ describe("the config-dir marker", () => {
       assert.match(markerId(dir), /^[0-9a-f]{32}$/);
     });
 
-    test("a marker whose id is not the one config.json records is made to agree", async () => {
+    test("a pre-0.8 dir with no marker and no id gets both, with one id, from its next config save", async () => {
+      const dir = homeDir("id-pre08");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "config.json"), AIAND_CONFIG);
+      process.env.AIAND_CONFIG_DIR = dir;
+      await saveConfig(loadConfig());
+      assert.match(configId(dir), /^[0-9a-f]{32}$/);
+      assert.equal(markerId(dir), configId(dir));
+      assert.equal(await provesAiandConfigDir(dir), true);
+    });
+
+    test("a marker whose id is not the one config.json records is left as it is, so the dir stays unproven", async () => {
       const dir = homeDir("id-mismatch");
       await cacheWrite(dir);
       await saveConfig({ profile: "default", profiles: { default: {} } });
       const real = configId(dir);
-      writeFileSync(join(dir, MARKER), `id: ${"0".repeat(32)}\n`);
+      const other = "0".repeat(32);
+      writeFileSync(join(dir, MARKER), `id: ${other}\n`);
       await cacheWrite(dir);
-      assert.equal(markerId(dir), real);
+      await saveConfig({ ...loadConfig(), profile: "work", profiles: { default: {}, work: {} } });
+      assert.equal(markerId(dir), other);
+      assert.equal(configId(dir), real);
+      assert.equal(await provesAiandConfigDir(dir), false);
     });
   });
 });

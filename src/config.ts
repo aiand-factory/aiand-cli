@@ -2,9 +2,15 @@ import { readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CliError } from "./cli/errors.js";
 import { INVALID_KEY_MESSAGE, isValidKeyShape } from "./cli/redact.js";
-import { isConfigId, newConfigId, readMarkerId } from "./config-files.js";
+import { isConfigId, newConfigId } from "./config-files.js";
 import { withFileLock } from "./filelock.js";
-import { configDir, PRIVATE_FILE_MODE, syncConfigMarker, writeFileAtomic } from "./fsutil.js";
+import {
+  configDir,
+  configMarkerId,
+  PRIVATE_FILE_MODE,
+  syncConfigMarker,
+  writeFileAtomic,
+} from "./fsutil.js";
 import type { DpapiFailure, Tier } from "./secrets.js";
 import * as secrets from "./secrets.js";
 
@@ -103,9 +109,9 @@ export function loadConfig(): Config {
 }
 
 export async function saveConfig(config: Config): Promise<void> {
-  // The id that lets `logout --all` tell this dir is aiand's: one the marker
-  // already carries (a cache write got there first), else a fresh one.
-  const config_id = config.config_id ?? (await readMarkerId(configDir())) ?? newConfigId();
+  // The id that lets `logout --all` tell this dir is aiand's: the one the
+  // marker carries (dropped now if there is none), else a fresh one.
+  const config_id = config.config_id ?? (await configMarkerId()) ?? newConfigId();
   await writeJson(configPath(), { ...config, config_id }, PRIVATE_FILE_MODE);
   await syncConfigMarker();
 }
