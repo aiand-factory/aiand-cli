@@ -27,6 +27,7 @@ import type {
   DisableResult,
   EnableInput,
   EnableResult,
+  ProbeDetail,
   ProbeResult,
   SessionLaunchInput,
 } from "../types.js";
@@ -115,7 +116,7 @@ function isOurRow(
   return row.baseUrl === expectedBaseUrl && typeof row.apiKey === "string";
 }
 
-async function probe(): Promise<ProbeResult> {
+async function probeDetail(): Promise<ProbeDetail> {
   let providers: Record<string, unknown>;
   let settings: Record<string, unknown>;
   try {
@@ -137,7 +138,16 @@ async function probe(): Promise<ProbeResult> {
     typeof selection === "string" && selection.startsWith(COPILOT_SELECTION_PREFIX)
       ? selection.slice(COPILOT_SELECTION_PREFIX.length)
       : null;
-  return { active: true, model };
+  return {
+    active: true,
+    model,
+    ...(typeof row.baseUrl === "string" ? { baseUrl: row.baseUrl } : {}),
+  };
+}
+
+async function probe(): Promise<ProbeResult> {
+  const { active, model } = await probeDetail();
+  return { active, model };
 }
 
 async function enable(input: EnableInput): Promise<EnableResult> {
@@ -513,6 +523,7 @@ export const copilotAdapter: AgentAdapter = {
     return files;
   },
   probe,
+  bakedBaseUrl: async () => (await probeDetail()).baseUrl,
   enable,
   disable,
   // Inherited env names that would repoint a launcher session off

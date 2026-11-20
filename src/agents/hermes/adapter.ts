@@ -55,6 +55,7 @@ import {
   hermesPluginYamlPath,
   hermesProviderDir,
   probe,
+  probeDetail,
 } from "./state.js";
 import { joinYamlLines, splitYamlLines } from "./yaml.js";
 
@@ -464,6 +465,7 @@ export const hermesAdapter: AgentAdapter = {
     return [hermesEnvPath(), hermesConfigPath(), hermesInitPyPath(), hermesPluginYamlPath()];
   },
   probe,
+  bakedBaseUrl: async () => (await probeDetail()).baseUrl,
   enable,
   disable,
   async refreshKey(input: { apiKey: string; previousKey?: string }): Promise<boolean> {

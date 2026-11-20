@@ -18,6 +18,7 @@ import type {
   DisableResult,
   EnableInput,
   EnableResult,
+  ProbeDetail,
   ProbeResult,
 } from "../types.js";
 import { OMP_INSTALL } from "./install.js";
@@ -132,7 +133,7 @@ function ownsProviderBlock(models: Record<string, unknown>, added: OmpRecord | n
   return typeof baseUrl === "string" && baseUrl === added.wroteBaseUrl;
 }
 
-async function probe(): Promise<ProbeResult> {
+async function probeDetail(): Promise<ProbeDetail> {
   let models: Record<string, unknown>;
   let config: Record<string, unknown>;
   let added: OmpRecord | null;
@@ -160,7 +161,12 @@ async function probe(): Promise<ProbeResult> {
     typeof defaultModel === "string" && defaultModel.startsWith(`${OMP_PROVIDER_ID}/`)
       ? defaultModel.slice(OMP_PROVIDER_ID.length + 1)
       : null;
-  return { active: true, model };
+  return { active: true, model, baseUrl: String(baseUrl) };
+}
+
+async function probe(): Promise<ProbeResult> {
+  const { active, model } = await probeDetail();
+  return { active, model };
 }
 
 async function enable(input: EnableInput): Promise<EnableResult> {
@@ -541,6 +547,7 @@ export const ompAdapter: AgentAdapter = {
     return files;
   },
   probe,
+  bakedBaseUrl: async () => (await probeDetail()).baseUrl,
   enable,
   disable,
   refreshKey: (input) => ompRefreshKey(input),

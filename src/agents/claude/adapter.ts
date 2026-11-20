@@ -29,6 +29,7 @@ import type {
   DisableResult,
   EnableInput,
   EnableResult,
+  ProbeDetail,
   ProbeResult,
   SessionLaunchInput,
 } from "../types.js";
@@ -158,7 +159,7 @@ function assertNotForeign(
   }
 }
 
-async function probe(): Promise<ProbeResult> {
+async function probeDetail(): Promise<ProbeDetail> {
   let settings: Record<string, unknown>;
   try {
     const path = await wiredSettingsPath();
@@ -166,8 +167,18 @@ async function probe(): Promise<ProbeResult> {
   } catch {
     return { active: false, model: null };
   }
-  const active = routedByUs(asObject(settings.env));
-  return { active, model: (active && startupModel(settings).model) || null };
+  const env = asObject(settings.env);
+  const active = routedByUs(env);
+  return {
+    active,
+    model: (active && startupModel(settings).model) || null,
+    ...(active ? { baseUrl: String(env?.[BASE_URL_KEY]) } : {}),
+  };
+}
+
+async function probe(): Promise<ProbeResult> {
+  const { active, model } = await probeDetail();
+  return { active, model };
 }
 
 async function enable(input: EnableInput): Promise<EnableResult> {
@@ -520,6 +531,7 @@ export const claudeAdapter: AgentAdapter = {
     return wired && wired !== current ? [current, wired] : [current];
   },
   probe,
+  bakedBaseUrl: async () => (await probeDetail()).baseUrl,
   enable,
   disable,
   async refreshKey(input: { apiKey: string; previousKey?: string }): Promise<boolean> {

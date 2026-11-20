@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { agentHome, DEFAULT_BASE_URL, isRoutableBaseUrl, trimSlash } from "../../config.js";
 import { readTextIfExists } from "../managed-file.js";
 import { getAddedState } from "../snapshot.js";
-import type { ProbeResult } from "../types.js";
+import type { ProbeDetail, ProbeResult } from "../types.js";
 import { HERMES_PROVIDER_API_KEY_ENV, readEnvValue } from "./env.js";
 import {
   HERMES_PROVIDER_ID,
@@ -89,7 +89,7 @@ export function hermesBlockIsOurs(configText: string, added: HermesRecord | null
 }
 
 /** Whether a wired home is live: our block, our key var, our endpoint, our key. */
-export async function probe(): Promise<ProbeResult> {
+export async function probeDetail(): Promise<ProbeDetail> {
   try {
     const [configText, envText] = await Promise.all([
       readTextIfExists(hermesConfigPath()),
@@ -117,9 +117,18 @@ export async function probe(): Promise<ProbeResult> {
     if (readEnvValue(envText, HERMES_PROVIDER_API_KEY_ENV) === undefined) {
       return { active: false, model: null };
     }
-    return { active: true, model: readModelField(configText, "default") ?? null };
+    return {
+      active: true,
+      model: readModelField(configText, "default") ?? null,
+      baseUrl: readProviderField(configText, "base_url"),
+    };
   } catch {
     // A file mid-edit must not wedge `hermes status`.
     return { active: false, model: null };
   }
+}
+
+export async function probe(): Promise<ProbeResult> {
+  const { active, model } = await probeDetail();
+  return { active, model };
 }

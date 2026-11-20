@@ -27,6 +27,7 @@ import type {
   DisableResult,
   EnableInput,
   EnableResult,
+  ProbeDetail,
   ProbeResult,
   SessionLaunchInput,
 } from "../types.js";
@@ -86,7 +87,7 @@ function hasOwnershipMarker(auth: Record<string, unknown>): boolean {
   return aiandCredential(auth)?.[PI_MARKER_KEY] === PI_MARKER;
 }
 
-async function probe(): Promise<ProbeResult> {
+async function probeDetail(): Promise<ProbeDetail> {
   let auth: Record<string, unknown>;
   let models: Record<string, unknown>;
   let settings: Record<string, unknown>;
@@ -124,7 +125,12 @@ async function probe(): Promise<ProbeResult> {
     }
   }
   const model = typeof settings.defaultModel === "string" ? settings.defaultModel : null;
-  return { active: true, model };
+  return { active: true, model, baseUrl: typeof baseUrl === "string" ? baseUrl : undefined };
+}
+
+async function probe(): Promise<ProbeResult> {
+  const { active, model } = await probeDetail();
+  return { active, model };
 }
 
 /**
@@ -523,6 +529,7 @@ export const piAdapter: AgentAdapter = {
     return files;
   },
   probe,
+  bakedBaseUrl: async () => (await probeDetail()).baseUrl,
   enable,
   disable,
   async refreshKey(input: { apiKey: string; previousKey?: string }): Promise<boolean> {
