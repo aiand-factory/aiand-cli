@@ -72,8 +72,8 @@ export function sqlString(value: string): string {
 }
 
 /** A finite number as a SQL literal, else NULL. */
-function sqlNumberOrNull(value: number): string {
-  return Number.isFinite(value) ? String(Math.trunc(value)) : "NULL";
+function sqlNumberOrNull(value: number | null): string {
+  return value !== null && Number.isFinite(value) ? String(Math.trunc(value)) : "NULL";
 }
 
 /** A non-empty string as a quoted SQL literal, else NULL. */
@@ -198,12 +198,13 @@ export function newCopilotProviderId(): string {
 export type CopilotAppModel = {
   id: string;
   name: string;
-  contextWindow: number;
+  maxPromptTokens: number;
+  maxOutputTokens: number | null;
   /** JSON text of the effort list; the app hides its picker for NULL. */
   reasoningEfforts: string;
 };
 
 /** The provider_models INSERT for one model; the column list lives here only. */
 export function copilotModelInsert(providerId: string, model: CopilotAppModel): string {
-  return `INSERT INTO provider_models (id, provider_id, model_id, wire_model, display_name, max_prompt_tokens, max_output_tokens, wire_api_override, supported_reasoning_efforts) VALUES (${sqlString(randomUUID())}, ${sqlString(providerId)}, ${sqlString(model.id)}, ${sqlString(model.id)}, ${sqlString(model.name)}, ${sqlNumberOrNull(model.contextWindow)}, ${sqlNumberOrNull(model.contextWindow)}, ${sqlString("completions")}, ${sqlTextOrNull(model.reasoningEfforts)});`;
+  return `INSERT INTO provider_models (id, provider_id, model_id, wire_model, display_name, max_prompt_tokens, max_output_tokens, wire_api_override, supported_reasoning_efforts) VALUES (${sqlString(randomUUID())}, ${sqlString(providerId)}, ${sqlString(model.id)}, ${sqlString(model.id)}, ${sqlString(model.name)}, ${sqlNumberOrNull(model.maxPromptTokens)}, ${sqlNumberOrNull(model.maxOutputTokens)}, ${sqlString("completions")}, ${sqlTextOrNull(model.reasoningEfforts)});`;
 }
