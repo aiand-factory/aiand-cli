@@ -82,7 +82,9 @@ repository can check that they are in place:
    Publisher): repository `aiandlabs/aiand-cli`, workflow filename
    `publish.yml`, environment name `release`. With the environment named
    there, npm only mints a publish credential for a run that went through
-   it. Once that works, the `NPM_TOKEN` secret can be deleted.
+   it. Set the package's publishing access to require two-factor
+   authentication and disallow tokens, so a token cannot publish around
+   the environment. `publish.yml` passes no token.
 3. A tag ruleset on `v*` (Settings, Rules, Rulesets, target: tags): creation,
    update, and deletion restricted to the release maintainers, with force
    pushes blocked. Without it anyone with write access can push a `v*` tag,
