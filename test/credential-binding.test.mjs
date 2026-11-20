@@ -698,6 +698,41 @@ describe("in-process gates", { concurrency: 1 }, () => {
     assert.equal(existsSync(join(cfg, "credentials.json")), false);
   });
 
+  test("logout sends an unbound sign-in nowhere when config.json's id is not the marker's", async () => {
+    const cfg = seed();
+    // A config.json copied from another install: aiand's shape, an issuer, another id.
+    writeFileSync(
+      join(cfg, "config.json"),
+      `${JSON.stringify({
+        profile: "default",
+        profiles: { default: { apiUrl: A.url, authUrl: A.url } },
+        config_id: "0".repeat(32),
+      })}\n`,
+    );
+    let fetched = 0;
+    await withEnv({ AIAND_CONFIG_DIR: cfg, AIAND_HOME: join(cfg, "home") }, () =>
+      withFetch(
+        async () => {
+          fetched += 1;
+          return new Response("{}");
+        },
+        async () => {
+          const muted = captureStdio({ mute: true });
+          try {
+            await assert.rejects(
+              logout({ profile: "default", revoke: true }),
+              /does not record where it was issued/,
+            );
+          } finally {
+            muted.restore();
+          }
+        },
+      ),
+    );
+    assert.equal(fetched, 0);
+    assert.deepEqual(secretOf(cfg), { access_token: "sk-real", refresh_token: "rt-real" });
+  });
+
   test("a pasted key records the endpoint it was validated against", async () => {
     const cfg = mkdtempSync(join(env.dir, "cfg-paste-"));
     await withEnv(

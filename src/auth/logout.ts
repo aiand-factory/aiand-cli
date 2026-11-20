@@ -18,7 +18,7 @@ import {
   resolveProfile,
   storedBinding,
 } from "../config.js";
-import { holdsAiandConfig } from "../config-files.js";
+import { provesAiandConfigDir } from "./config-wipe.js";
 import { classifySource } from "./identity.js";
 
 /** The console page where a key this CLI cannot revoke is revoked by hand. */
@@ -94,11 +94,12 @@ export async function logout(opts: LogoutOptions = {}): Promise<void> {
   }
   if (attempt && revokeToken) {
     // A sign-in with no bound_to falls back to the issuer config.json records
-    // for its profile. With no config.json of aiand's that is only the
-    // default endpoint, a guess, so the refresh token goes nowhere.
-    if (!storedBinding(credential) && !(await holdsAiandConfig(configDir()))) {
+    // for its profile. That is only trusted from a config.json the marker
+    // vouches for: without one the issuer is the default endpoint, a guess,
+    // and a copied one names another install's, so the token goes nowhere.
+    if (!storedBinding(credential) && !(await provesAiandConfigDir(configDir()))) {
       throw new CliError(
-        `The sign-in for "${profile.name}" does not record where it was issued, and there is no config.json of aiand's to read it from, so its key was not revoked; you are still signed in.`,
+        `The sign-in for "${profile.name}" does not record where it was issued, and no config.json of this install's says where, so its key was not revoked; you are still signed in.`,
         {
           hint: `If it is aiand's, revoke the key at ${CONSOLE_KEYS_URL}, then run \`aiand logout --keep-remote\` to forget it here.`,
         },
