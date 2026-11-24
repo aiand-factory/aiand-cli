@@ -6,6 +6,7 @@ import { agentHome, isRoutableBaseUrl, trimSlash, writeFileAtomic } from "../../
 import { DEFAULT_FILE_MODE, existingFileMode, PRIVATE_FILE_MODE } from "../../fsutil.js";
 import { resolveDefault } from "../catalog.js";
 import { detectBinary } from "../detect.js";
+import { takeFlagValues } from "../launch.js";
 import {
   asObject,
   jsoncDelete,
@@ -108,6 +109,9 @@ export function buildOpencodeConfig({
     model: `${OPENCODE_PROVIDER_ID}/${model}`,
   };
   if (lockdown) {
+    // Titles and summaries on the same model: left unset, OpenCode picks its
+    // own small model, which may be one the user did not choose.
+    config.small_model = config.model;
     // Hide every built-in provider from the picker.
     config.enabled_providers = [OPENCODE_PROVIDER_ID];
     // OpenCode's own Zen provider auto-loads its models; disabled_providers
@@ -373,6 +377,7 @@ export const opencodeAdapter: AgentAdapter = {
   label: "OpenCode",
   bin: OPENCODE_BIN,
   install: OPENCODE_INSTALL,
+  launchModelFlags: ["--model", "-m"],
   aliases: ["code"],
   detect(): DetectResult {
     return detectBinary(OPENCODE_BIN);
@@ -551,12 +556,14 @@ export const opencodeAdapter: AgentAdapter = {
     };
   },
   async openExtras(input) {
+    // The user named a model in OpenCode's own args: theirs stands.
+    if (takeFlagValues(input.args, ["--model", "-m"]).values.length > 0) return {};
     const config = await readOpencodeConfig();
     const model = typeof config.model === "string" ? config.model : "";
     if (!model || model.startsWith(`${OPENCODE_PROVIDER_ID}/`)) return {};
     if (process.env.OPENCODE_CONFIG_CONTENT) return {};
     const wired = Object.keys(aiandProviderField(config, "models") ?? {}).map((id) => ({ id }));
     const ref = `${OPENCODE_PROVIDER_ID}/${resolveDefault(wired, input.profileModel)}`;
-    return { env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: ref }) } };
+    return { env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: ref, small_model: ref }) } };
   },
 };

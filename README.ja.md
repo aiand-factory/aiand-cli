@@ -79,10 +79,10 @@ Claude Code で ai& を使う方法は 2 つあります。1 回のセッショ�
 ```bash
 aiand claude                              # Claude Code のセッションを 1 つ ai& で開く
 aiand claude -p "explain this repo"       # Claude Code に引数を渡す
-aiand run-agent claude --model <id>       # このセッションで使う ai& のモデルを選ぶ
+aiand claude --model <id>                 # このセッションで使う ai& のモデルを選ぶ
 ```
 
-`aiand claude` は Claude Code のセッションを 1 つ ai& で起動し、Claude Code の設定には何も書き込みません。ほかのターミナルで開いた通常の `claude` のセッションは、その前も最中もあとも、Anthropic のモデルを使い続けます。`claude` のあとに続く引数は、そのまま Claude Code に渡されます。モデルを選ぶには `aiand run-agent claude --model <id>` を使います。モデルの一覧は `aiand models` で確認できます。
+`aiand claude` は Claude Code のセッションを 1 つ ai& で起動し、Claude Code の設定には何も書き込みません。ほかのターミナルで開いた通常の `claude` のセッションは、その前も最中もあとも、Anthropic のモデルを使い続けます。`claude` のあとに続く引数は、そのまま Claude Code に渡されます。ただし `--model <id>` は、このセッションのすべてのモデルのスロットで使う ai& のモデルを選びます。モデルの一覧は `aiand models` で確認できます。
 
 `/model` で ai& のモデルを選んで既定として保存した場合、Claude Code が保存した直後に、aiand が元の既定のモデルに戻します。そのため、ai& のセッションがまだ開いているあいだに起動した通常の `claude` でも、使えるモデルで起動します。`aiand claude on` が有効なあいだは、すべての `claude` が ai& で動くため、ai& の既定のモデルはそのまま残ります。
 

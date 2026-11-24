@@ -113,10 +113,22 @@ aiand claude off         # back to Anthropic's models
 
 `on` writes an `env` block into `~/.claude/settings.json` (or
 `$CLAUDE_CONFIG_DIR/settings.json`): the gateway URL, your key, and a catalog
-model for every slot. The main slots get a vision model unless your profile
-names a model; background work (the `haiku` slot) gets a fast one. Pass
-`--model <id>` to switch the main slots. A `model` setting ai& cannot serve is
-set aside until `off`; one it can serve is kept, and Claude Code starts on it.
+model for every slot. Claude Code sends requests from more than one slot:
+session titles and other background calls go to the `haiku` slot, and auto
+mode's safety checks to the Sonnet slot.
+
+- **You chose a model** (`--model <id>`, or `aiand config set model <id>`):
+  every slot gets that model, the `haiku` slot too, so Claude Code sends
+  requests to no other model. Add `--fast-model <id>` to give background
+  calls a separate model. A re-run of `on` keeps both choices.
+- **You did not:** the main slots get a vision model and the `haiku` slot a
+  fast one, from aiand's preferred order.
+
+`aiand claude --model <id>` (one session) does the same for that session.
+`aiand claude status` lists the model in every slot and warns about any slot
+that holds a model other than the one you chose, such as one you set by hand.
+A `model` setting ai& cannot serve is set aside until `off`; one it can serve
+is kept, and Claude Code starts on it.
 
 What else `on` changes:
 
@@ -307,9 +319,10 @@ inside the overlay and the real `~/.hermes`, including its `config.yaml`, is
 never written. The overlay ships the same dedicated `aiand` model provider, and
 its `config.yaml` pins the model from the live catalog: use `--model <id>` to
 choose (a session launch always names a model, so `--model native` is the usual
-catalog error). `--provider`, `--model`, and `-m` in the arguments after `--`
-are stripped so nothing can override the injected routing, and the overlay is
-removed after the session ends: success, failure, or Ctrl-C.
+catalog error). `--model` or `-m` in the arguments after `--` counts as
+`--model`: the session runs on it. `--provider` there is stripped so nothing
+can override the injected routing, and the overlay is removed after the
+session ends: success, failure, or Ctrl-C.
 
 ## Jouzu
 

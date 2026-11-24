@@ -1,0 +1,199 @@
+// A user who picks a model gets only that model. Claude Code sends
+// session titles to its fast (haiku) slot and auto-mode safety checks to its
+// Sonnet slot (or CLAUDE_CODE_AUTO_MODE_MODEL), so a slot left on a default
+// sends the user's data to a model they did not choose. These tests run the
+// config aiand writes through a stand-in for Claude Code that routes each
+// kind of request the way Claude Code does, against a logging mock gateway,
+// and read back which models were asked for.
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { delimiter, join } from "node:path";
+import { after, before, beforeEach, describe, test } from "node:test";
+import {
+  catalogModel,
+  harnessEnv,
+  plantStub,
+  runCli,
+  seedCatalogCache,
+  startMockGateway,
+  withTestEnv,
+} from "./helpers.mjs";
+
+const CHOSEN = "meta/muse-spark-open";
+const MAIN_DEFAULT = "moonshotai/kimi-k3";
+const FAST_DEFAULT = "deepseek-ai/deepseek-v4.1-flash-1017";
+// The catalog holds Claude's preferred defaults, so a slot that falls back to
+// one shows up in the log.
+const MODELS = [CHOSEN, MAIN_DEFAULT, FAST_DEFAULT, "zai-org/glm-5.3"].map((id) =>
+  catalogModel(id, { context_window: 262144 }),
+);
+
+/**
+ * Claude Code's model routing, from its docs (model-config, permission-modes,
+ * env-vars) and the `query_source` lines it logs for unknown models: settings `env`
+ * applies over the process env, `--settings` over the user's settings.json,
+ * and each kind of request reads its own slot. An unset slot falls back to a
+ * Claude model, which no ai& catalog serves.
+ */
+const FAKE_CLAUDE = `
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+const args = process.argv.slice(2);
+const read = (path) => {
+  try { return JSON.parse(readFileSync(path, "utf8")); } catch { return {}; }
+};
+const user = read(join(process.env.CLAUDE_CONFIG_DIR, "settings.json"));
+const at = args.indexOf("--settings");
+const overlay = at === -1 ? {} : read(args[at + 1]);
+const env = { ...process.env, ...(user.env ?? {}), ...(overlay.env ?? {}) };
+const flag = args.indexOf("--model");
+const BUILT_IN = { opus: "claude-opus", sonnet: "claude-sonnet", haiku: "claude-haiku", fable: "claude-fable" };
+const slot = (name) => env["ANTHROPIC_DEFAULT_" + name.toUpperCase() + "_MODEL"] || BUILT_IN[name];
+const resolve = (model) => {
+  const alias = (model ?? "default").toLowerCase();
+  if (["default", "sonnet", "opusplan"].includes(alias)) return slot("sonnet");
+  if (["opus", "best"].includes(alias)) return slot("opus");
+  if (alias in BUILT_IN) return slot(alias);
+  return model;
+};
+const main = resolve(flag === -1 ? env.ANTHROPIC_MODEL || overlay.model || user.model : args[flag + 1]);
+const requests = {
+  sdk: main,
+  generate_session_title: slot("haiku"),
+  auto_mode: env.CLAUDE_CODE_AUTO_MODE_MODEL || slot("sonnet"),
+  subagent: env.CLAUDE_CODE_SUBAGENT_MODEL || main,
+  plan_mode: slot("opus"),
+  fable: slot("fable"),
+};
+for (const [source, model] of Object.entries(requests)) {
+  await fetch(env.ANTHROPIC_BASE_URL + "/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + env.ANTHROPIC_AUTH_TOKEN },
+    body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: "user", content: source }] }),
+  });
+}
+`;
+
+let home, cfg, bin, claudeDir, log, gateway;
+
+withTestEnv("aiand-chosen-model-", (dir) => {
+  home = join(dir, "home");
+  cfg = join(dir, "cfg");
+  bin = join(dir, "bin");
+  claudeDir = join(dir, "claude");
+  log = join(dir, "gateway.log");
+  mkdirSync(home, { recursive: true });
+  writeFileSync(join(dir, "fake-claude.mjs"), FAKE_CLAUDE);
+  plantStub(bin, "claude", `exec "${process.execPath}" "${join(dir, "fake-claude.mjs")}" "$@"`);
+});
+
+before(async () => {
+  gateway = await startMockGateway({ args: ["--log", log] });
+});
+after(async () => {
+  await gateway?.stop();
+});
+beforeEach(() => {
+  rmSync(claudeDir, { recursive: true, force: true });
+  rmSync(cfg, { recursive: true, force: true });
+  rmSync(log, { force: true });
+  seedCatalogCache(cfg, { baseUrl: gateway.url, models: MODELS });
+});
+
+const cliEnvFor = () => ({
+  ...harnessEnv(),
+  AIAND_HOME: home,
+  AIAND_CONFIG_DIR: cfg,
+  AIAND_API_KEY: "sk-test-chosen-model",
+  AIAND_BASE_URL: gateway.url,
+  CLAUDE_CONFIG_DIR: claudeDir,
+  AIAND_CLAUDE_RELOAD_MS: "0",
+  PATH: `${bin}${delimiter}${process.env.PATH}`,
+});
+
+async function aiand(...args) {
+  const result = await runCli(args, { env: cliEnvFor() });
+  assert.equal(result.code, 0, `aiand ${args.join(" ")}: ${result.stderr}`);
+  return result;
+}
+
+/** Each request Claude Code sent, as `query source → model`. */
+function requested() {
+  if (!existsSync(log)) return {};
+  const lines = readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  return Object.fromEntries(
+    lines
+      .filter((line) => line.path.endsWith("/v1/messages"))
+      .map((line) => [line.prompt, line.model]),
+  );
+}
+
+const only = (model) => ({
+  sdk: model,
+  generate_session_title: model,
+  auto_mode: model,
+  subagent: model,
+  plan_mode: model,
+  fable: model,
+});
+
+describe("only the chosen model is requested", () => {
+  test("aiand claude on --model X, then claude", async () => {
+    await aiand("claude", "on", "--model", CHOSEN);
+    await runFakeClaude();
+    assert.deepEqual(requested(), only(CHOSEN));
+    const status = await aiand("claude", "status");
+    assert.doesNotMatch(status.stderr, /sends requests there too/);
+  });
+
+  test("aiand claude --model X (one session)", async () => {
+    await aiand("claude", "--model", CHOSEN, "-p", "hi");
+    assert.deepEqual(requested(), only(CHOSEN));
+  });
+
+  test("aiand claude --model=X before the agent's own args", async () => {
+    await aiand("claude", `--model=${CHOSEN}`, "-p", "hi");
+    assert.deepEqual(requested(), only(CHOSEN));
+  });
+
+  test("the profile's model (aiand config set model)", async () => {
+    await aiand("config", "set", "model", CHOSEN);
+    await aiand("claude", "-p", "hi");
+    assert.deepEqual(requested(), only(CHOSEN));
+  });
+
+  test("--fast-model is the only other model, and only for background calls", async () => {
+    await aiand("claude", "on", "--model", CHOSEN, "--fast-model", "zai-org/glm-5.3");
+    await runFakeClaude();
+    assert.deepEqual(requested(), {
+      ...only(CHOSEN),
+      generate_session_title: "zai-org/glm-5.3",
+    });
+  });
+
+  test("a Claude alias in the agent's args still resolves to the chosen model", async () => {
+    await aiand("claude", "on", "--model", CHOSEN);
+    await runFakeClaude(["--model", "opus"]);
+    assert.deepEqual(requested(), only(CHOSEN));
+  });
+
+  test("with no model chosen, status names every model Claude Code sends to", async () => {
+    await aiand("claude", "on");
+    await runFakeClaude();
+    assert.deepEqual(new Set(Object.values(requested())), new Set([MAIN_DEFAULT, FAST_DEFAULT]));
+    const status = await aiand("claude", "status");
+    assert.match(status.stdout, new RegExp(`fast \\(haiku\\)\\s+${FAST_DEFAULT}`));
+    assert.match(status.stderr, /fast \(haiku\) model .* sends requests there too/);
+  });
+});
+
+/** Run the stand-in Claude Code the way a user's plain `claude` would, outside aiand. */
+async function runFakeClaude(args = []) {
+  const { spawn } = await import("node:child_process");
+  const child = spawn(join(bin, "claude"), args, { env: cliEnvFor(), stdio: "ignore" });
+  const code = await new Promise((resolve) => child.on("close", resolve));
+  assert.equal(code, 0, "fake claude");
+}

@@ -577,6 +577,7 @@ export const codexAdapter: AgentAdapter = {
   label: "Codex",
   bin: CODEX_BIN,
   install: CODEX_INSTALL,
+  launchModelFlags: ["--model", "-m"],
   detect(): DetectResult {
     return detectBinary(CODEX_BIN);
   },

@@ -1,7 +1,7 @@
 import type { Model } from "../../api/models.js";
-import { DEFAULT_BASE_URL, trimSlash } from "../../config.js";
+import { DEFAULT_BASE_URL, isRoutableBaseUrl, trimSlash } from "../../config.js";
 import { resolveDefault } from "../catalog.js";
-import { asObject } from "../managed-file.js";
+import { asObject, notValidJsonError, parseJsonc } from "../managed-file.js";
 import { buildModelPicker, CONTEXT_CAP_TOKENS } from "./picker.js";
 
 /** Claude Code reads its boolean env switches as "1" and "0". */
@@ -75,7 +75,33 @@ export const isAlias = (model: string): boolean => Object.hasOwn(ALIAS_SLOTS, al
 export const claudeDefaultModel = (catalog: Model[], profileModel?: string): string =>
   resolveDefault(catalog, profileModel, MAIN_PREFERRED);
 
-export function fastModel(catalog: Model[], main: string): string {
+/**
+ * The model the user chose for Claude Code: `--model`, else the profile's
+ * model (`aiand config set model`) while the catalog still serves it. Unset
+ * means the user left the pick to us.
+ */
+export function chosenModel(
+  catalog: Model[],
+  model: string | undefined,
+  profileModel: string | undefined,
+): string | undefined {
+  if (model !== undefined) return model;
+  return profileModel && inCatalog(catalog, profileModel) ? profileModel : undefined;
+}
+
+/**
+ * The fast slot's model (`haiku`: session titles and other background calls).
+ * `--fast-model` when given; else the chosen model, so a user who picked one
+ * model gets only that model; only with no choice at all does the
+ * curated fast order apply.
+ */
+export function fastModel(
+  catalog: Model[],
+  main: string,
+  choice: { chosen?: string; fast?: string } = {},
+): string {
+  if (choice.fast !== undefined) return choice.fast;
+  if (choice.chosen !== undefined) return choice.chosen;
   return FAST_PREFERRED.find((id) => inCatalog(catalog, id)) ?? main;
 }
 
@@ -140,6 +166,62 @@ export function startupModel(settings: Record<string, unknown>): {
   return { model: nonEmpty(slot) ? slot : undefined };
 }
 
+/** Auto mode's safety-check model (Claude Code 2.1.302+); unset, the checks use the Sonnet slot. */
+const AUTO_MODE_MODEL_KEY = "CLAUDE_CODE_AUTO_MODE_MODEL";
+
+const SLOT_LABELS: [key: string, label: string][] = [
+  [OPUS_SLOT, "opus"],
+  [SONNET_SLOT, "sonnet"],
+  [FABLE_SLOT, "fable"],
+  ["CLAUDE_CODE_SUBAGENT_MODEL", "subagent"],
+  [FAST_SLOT, "fast (haiku)"],
+];
+
+export type SlotEntry = { key: string; label: string; model: string | null };
+
+/**
+ * Every model Claude Code can send a request to under these settings, and a
+ * warning for each that is not the chosen one. `chosen` is what the user
+ * picked (`--model`, `--fast-model` for the fast slot and safety checks);
+ * with no pick, the model Claude Code starts on.
+ */
+export function slotReport(
+  settings: Record<string, unknown>,
+  choice: { chosen?: string; fast?: string } = {},
+): { slots: SlotEntry[]; warnings: string[] } {
+  const env = asObject(settings.env) ?? {};
+  const read = (key: string): string | null => (nonEmpty(env[key]) ? env[key] : null);
+  const startup = startupModel(settings);
+  const slots: SlotEntry[] = [
+    { key: startup.setting?.label ?? "model", label: "startup", model: startup.model ?? null },
+    ...SLOT_LABELS.map(([key, label]) => ({ key, label, model: read(key) })),
+  ];
+  const auto = read(AUTO_MODE_MODEL_KEY);
+  slots.push(
+    auto !== null
+      ? { key: AUTO_MODE_MODEL_KEY, label: "auto-mode checks", model: auto }
+      : { key: SONNET_SLOT, label: "auto-mode checks", model: read(SONNET_SLOT) },
+  );
+  const main = choice.chosen ?? startup.model;
+  const fastSide = new Set([FAST_SLOT, AUTO_MODE_MODEL_KEY]);
+  const warnings: string[] = [];
+  for (const slot of slots) {
+    const want = fastSide.has(slot.key) && choice.fast !== undefined ? choice.fast : main;
+    if (want === undefined || slot.model === null || slot.model === want) continue;
+    warnings.push(
+      `Claude Code's ${slot.label} model (${slot.key}) is ${slot.model}, not ${want}: it sends requests there too.`,
+    );
+  }
+  if (warnings.length > 0) {
+    warnings.push(
+      choice.chosen !== undefined
+        ? `To put every slot on ${choice.chosen}, run aiand claude on --model ${choice.chosen}.`
+        : "To put every slot on one model, run aiand claude on --model <id>.",
+    );
+  }
+  return { slots, warnings };
+}
+
 export function contextTokens(catalog: Model[], ids: string[]): string | undefined {
   const windows = ids
     .map((id) => catalog.find((model) => model.id === id)?.context_window)
@@ -151,14 +233,15 @@ export function buildClaudeSettings({
   apiKey,
   baseUrl,
   main,
+  fast,
   catalog,
 }: {
   apiKey: string;
   baseUrl: string;
   main: string;
+  fast: string;
   catalog: Model[];
 }): Record<string, unknown> {
-  const fast = fastModel(catalog, main);
   // ANTHROPIC_MODEL too: a shell export of it would beat the `model` below.
   const env: Env = {
     ...gatewayEnv(apiKey, baseUrl),
@@ -173,6 +256,44 @@ export function buildClaudeSettings({
     permissions: { deny: DENIED_TOOLS },
     modelPicker: buildModelPicker(catalog, Number(tokens) || undefined),
   };
+}
+
+export const INVALID_CONFIG_HINT = "Fix it by hand, then run aiand claude on again.";
+
+export const routedByUs = (env: Record<string, unknown> | undefined): boolean =>
+  env?.[MARKER_KEY] === ENV_ON && isRoutableBaseUrl(env[BASE_URL_KEY]);
+
+export function parseSettings(path: string, raw: string): Record<string, unknown> {
+  if (!raw.trim()) return {};
+  let parsed: unknown;
+  try {
+    parsed = parseJsonc(raw);
+  } catch (error) {
+    if (error instanceof SyntaxError) throw notValidJsonError(path, INVALID_CONFIG_HINT);
+    throw error;
+  }
+  const object = asObject(parsed);
+  if (!object) throw notValidJsonError(path, INVALID_CONFIG_HINT);
+  return object;
+}
+
+/** Slots that follow `--fast-model` rather than `--model`. */
+export const FAST_SIDE = new Set([FAST_SLOT, AUTO_MODE_MODEL_KEY]);
+
+/**
+ * A record from before `chosen` was recorded (0.8.0): main slots that all
+ * hold one served model other than the default were a `--model` choice.
+ */
+export function legacyChosen(
+  priorEnv: Env,
+  catalog: Model[],
+  profileModel: string | undefined,
+): string | undefined {
+  const values = new Set(MAIN_SLOTS.map((slot) => priorEnv[slot]));
+  if (values.size !== 1) return undefined;
+  const [model] = values;
+  if (model === undefined || !inCatalog(catalog, model)) return undefined;
+  return model === claudeDefaultModel(catalog, profileModel) ? undefined : model;
 }
 
 export const nonEmpty = (value: unknown): value is string =>
