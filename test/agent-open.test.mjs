@@ -125,7 +125,9 @@ describe("aiand <agent> opens the agent", () => {
     mkdirSync(dirname(opencodeJson(state)), { recursive: true });
     writeFileSync(opencodeJson(state), '{ "model": "anthropic/claude-sonnet-4-5" }\n');
     assert.equal((await cli(["opencode", "--model=aiand/other/model"], state)).code, 42);
-    assert.doesNotMatch(capturedEnv(state), /^OPENCODE_CONFIG_CONTENT=/m);
+    // Not the inline default model; titles and summaries on the one named.
+    const inline = capturedEnv(state).match(/^OPENCODE_CONFIG_CONTENT=(.*)$/m);
+    assert.deepEqual(JSON.parse(inline[1]), { small_model: "aiand/other/model" });
   });
 
   test("OpenCode opens on a model its wired provider lists, catalog or not", async () => {

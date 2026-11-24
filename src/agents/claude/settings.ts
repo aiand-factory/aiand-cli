@@ -25,6 +25,8 @@ const SONNET_SLOT = "ANTHROPIC_DEFAULT_SONNET_MODEL";
 const FABLE_SLOT = "ANTHROPIC_DEFAULT_FABLE_MODEL";
 export const MAIN_SLOTS = [OPUS_SLOT, SONNET_SLOT, FABLE_SLOT, "CLAUDE_CODE_SUBAGENT_MODEL"];
 export const FAST_SLOT = "ANTHROPIC_DEFAULT_HAIKU_MODEL";
+/** Auto mode's safety-check model (Claude Code 2.1.302+); unset, the checks use the Sonnet slot. */
+const AUTO_MODE_MODEL_KEY = "CLAUDE_CODE_AUTO_MODE_MODEL";
 const ENV_MODEL_KEY = "ANTHROPIC_MODEL";
 /** The slot `default`, and an alias this adapter does not know, start on. */
 const DEFAULT_SLOT = SONNET_SLOT;
@@ -123,6 +125,9 @@ export function slotEnv(main: string, fast: string): Env {
   const env: Env = {};
   for (const slot of MAIN_SLOTS) env[slot] = main;
   env[FAST_SLOT] = fast;
+  // Auto mode's safety checks (Claude Code 2.1.302+): written, so a value
+  // exported in the shell cannot send them to a model nobody chose here.
+  env[AUTO_MODE_MODEL_KEY] = fast;
   return env;
 }
 
@@ -166,9 +171,6 @@ export function startupModel(settings: Record<string, unknown>): {
   return { model: nonEmpty(slot) ? slot : undefined };
 }
 
-/** Auto mode's safety-check model (Claude Code 2.1.302+); unset, the checks use the Sonnet slot. */
-const AUTO_MODE_MODEL_KEY = "CLAUDE_CODE_AUTO_MODE_MODEL";
-
 const SLOT_LABELS: [key: string, label: string][] = [
   [OPUS_SLOT, "opus"],
   [SONNET_SLOT, "sonnet"],
@@ -182,7 +184,7 @@ export type SlotEntry = { key: string; label: string; model: string | null };
 /**
  * Every model Claude Code can send a request to under these settings, and a
  * warning for each that is not the chosen one. `chosen` is what the user
- * picked (`--model`, `--fast-model` for the fast slot and safety checks);
+ * picked (`--model`; `--fast-model` for the fast slot and safety checks);
  * with no pick, the model Claude Code starts on.
  */
 export function slotReport(
@@ -293,7 +295,9 @@ export function legacyChosen(
   if (values.size !== 1) return undefined;
   const [model] = values;
   if (model === undefined || !inCatalog(catalog, model)) return undefined;
-  return model === claudeDefaultModel(catalog, profileModel) ? undefined : model;
+  // Our default, or the profile's model, was no --model choice.
+  if (model === claudeDefaultModel(catalog) || model === profileModel) return undefined;
+  return model;
 }
 
 export const nonEmpty = (value: unknown): value is string =>

@@ -15,8 +15,12 @@ breaking changes while the command surface settles.
   left the fast slot on `deepseek-ai/deepseek-v4.1-flash-1017`, and
   `aiand claude --model <id>` (one session) left every slot but the startup
   model on `moonshotai/kimi-k3`, so auto mode's safety checks went there.
-  A model set with `aiand config set model` counts as a choice too. A
-  re-run of `aiand claude on` moves a fast slot that 0.8.0 left behind.
+  A model set with `aiand config set model` counts as a choice too, and a
+  later `on` follows a new one. `aiand claude` sessions keep a model given
+  to `on --model`. `on` also writes `CLAUDE_CODE_AUTO_MODE_MODEL` (the
+  safety checks' model, Claude Code 2.1.302+) to the chosen model, so one
+  exported in the shell cannot send the checks elsewhere. A re-run of
+  `aiand claude on` moves a fast slot that 0.8.0 left behind.
 - `aiand claude --model <id>` and `aiand run-agent <agent> -- --model <id>`
   run the session on that model. Before, Copilot, Pi, omp and Hermes dropped
   a `--model` given after `--` and started on the default model, and Claude
@@ -24,15 +28,16 @@ breaking changes while the command surface settles.
   does not serve is now refused instead of replaced.
 - `aiand <agent> --model <id>` on an agent that is not set up yet sets it up
   on that model, not on the default, so a later plain launch stays on it.
-- OpenCode one-session launches set `small_model` to the session's model, so
-  titles and summaries stay on the model you chose, and a `--model` or `-m`
-  in `aiand opencode`'s arguments is no longer overridden.
+- OpenCode: `aiand opencode on` and one-session launches set `small_model`
+  to the chosen model, so titles and summaries stay on it instead of a model
+  OpenCode picks; `off` hands back a `small_model` of your own. A `--model`
+  or `-m` in `aiand opencode`'s arguments is no longer overridden.
 
 ### Added
 
 - `--fast-model <id>` for `aiand claude on`, `aiand claude` and
   `aiand run-agent claude`: a separate model for Claude Code's background
-  calls. Without it, they use `--model`.
+  calls and auto mode's safety checks. Without it, they use `--model`.
 - `aiand claude status` lists every model Claude Code can send requests to
   (each slot and the auto-mode safety checks) and warns about any slot that
   holds a model other than the one you chose.

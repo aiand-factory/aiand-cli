@@ -91,8 +91,10 @@ aiand run-agent opencode # or: use ai& for this one session, change nothing
 models from the live catalog, so plain `opencode` uses ai& afterwards. Your
 other providers and your own edits are left alone. If you already chose a
 model it stays chosen; pass `--model <id>` to switch, or `--model native` to
-keep OpenCode's own default. `aiand opencode` still opens on an ai& model,
-for that run only.
+keep OpenCode's own default. `small_model`, which OpenCode uses for titles and
+summaries, is set to the same ai& model, so OpenCode does not pick another one;
+`off` hands back a `small_model` of your own. `aiand opencode` still opens on
+an ai& model, for that run only.
 
 `off` removes only what aiand wrote. If a config ever ends up in a state you
 do not want, `aiand restore opencode --force` puts back the exact file from
@@ -119,8 +121,12 @@ mode's safety checks to the Sonnet slot.
 
 - **You chose a model** (`--model <id>`, or `aiand config set model <id>`):
   every slot gets that model, the `haiku` slot too, so Claude Code sends
-  requests to no other model. Add `--fast-model <id>` to give background
-  calls a separate model. A re-run of `on` keeps both choices.
+  requests to no other model. That includes auto mode's safety checks:
+  `on` writes `CLAUDE_CODE_AUTO_MODE_MODEL` too, so a value exported in your
+  shell cannot move them. Add `--fast-model <id>` to give background calls
+  and safety checks a separate model. A re-run of `on`, and `aiand claude`
+  sessions, keep a `--model` choice; a profile model is followed as it
+  changes.
 - **You did not:** the main slots get a vision model and the `haiku` slot a
   fast one, from aiand's preferred order.
 

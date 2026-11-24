@@ -41,7 +41,7 @@ aiand opencode off       # aiand が追加した内容だけを削除する
 aiand run-agent opencode # または: 1 回のセッションだけ ai& を使い、何も変更しない
 ```
 
-`on` は、ライブのカタログにあるモデルとともに、`aiand` プロバイダーを `~/.config/opencode/opencode.json` に追加します。以降は、通常の `opencode` でも ai& が使われます。ほかのプロバイダーやご自身の編集はそのまま残ります。すでにモデルを選んでいる場合は、そのモデルが維持されます。切り替えるには `--model <id>` を指定し、OpenCode 自身の既定のモデルを使い続けるには `--model native` を指定します。`aiand opencode` は、その実行に限って、引き続き ai& のモデルで開きます。
+`on` は、ライブのカタログにあるモデルとともに、`aiand` プロバイダーを `~/.config/opencode/opencode.json` に追加します。以降は、通常の `opencode` でも ai& が使われます。ほかのプロバイダーやご自身の編集はそのまま残ります。すでにモデルを選んでいる場合は、そのモデルが維持されます。切り替えるには `--model <id>` を指定し、OpenCode 自身の既定のモデルを使い続けるには `--model native` を指定します。OpenCode がタイトルや要約に使う `small_model` にも同じ ai& のモデルが設定されるため、OpenCode がほかのモデルを選ぶことはありません。ご自身の `small_model` は `off` で元に戻ります。`aiand opencode` は、その実行に限って、引き続き ai& のモデルで開きます。
 
 `off` は、aiand が書き込んだ内容だけを削除します。設定が望ましくない状態になった場合は、`aiand restore opencode --force` で、aiand が最初に変更する前のファイルにそのまま戻せます。
 
@@ -56,7 +56,7 @@ aiand claude status
 aiand claude off         # Anthropic のモデルに戻す
 ```
 
-`on` は、`env` ブロックを `~/.claude/settings.json`(または `$CLAUDE_CONFIG_DIR/settings.json`)に書き込みます。内容は、ゲートウェイの URL、API キー、そしてすべてのスロットに割り当てるカタログのモデルです。Claude Code は複数のスロットからリクエストを送ります。セッションのタイトルなどのバックグラウンドの処理は `haiku` スロットに、自動モードの安全チェックは Sonnet スロットに送られます。モデルを選んだ場合(`--model <id>` または `aiand config set model <id>`)は、`haiku` スロットも含めてすべてのスロットにそのモデルが割り当てられ、Claude Code はほかのモデルにリクエストを送りません。バックグラウンドの処理に別のモデルを使うには `--fast-model <id>` を追加します。もう一度 `on` を実行しても、選んだモデルは維持されます。モデルを選ばなかった場合は、メインのスロットにビジョン対応のモデル、`haiku` スロットに高速なモデルが、aiand の優先順位から割り当てられます。`aiand claude --model <id>`(1 回のセッション)も、そのセッションで同じように動作します。`aiand claude status` は、すべてのスロットのモデルを表示し、選んだモデルと異なるモデル(手で設定したものなど)を持つスロットがあれば警告します。ai& が提供できない `model` 設定は `off` まで退避されます。提供できるものはそのまま残り、Claude Code はそのモデルで起動します。
+`on` は、`env` ブロックを `~/.claude/settings.json`(または `$CLAUDE_CONFIG_DIR/settings.json`)に書き込みます。内容は、ゲートウェイの URL、API キー、そしてすべてのスロットに割り当てるカタログのモデルです。Claude Code は複数のスロットからリクエストを送ります。セッションのタイトルなどのバックグラウンドの処理は `haiku` スロットに、自動モードの安全チェックは Sonnet スロットに送られます。モデルを選んだ場合(`--model <id>` または `aiand config set model <id>`)は、`haiku` スロットも含めてすべてのスロットにそのモデルが割り当てられ、Claude Code はほかのモデルにリクエストを送りません。自動モードの安全チェックも同じです。`on` は `CLAUDE_CODE_AUTO_MODE_MODEL` も書き込むため、シェルで設定した値で安全チェックの送り先が変わることはありません。バックグラウンドの処理と安全チェックに別のモデルを使うには `--fast-model <id>` を追加します。もう一度 `on` を実行しても、また `aiand claude` のセッションでも、`--model` で選んだモデルは維持されます。プロファイルのモデルは、変更されればそれに従います。モデルを選ばなかった場合は、メインのスロットにビジョン対応のモデル、`haiku` スロットに高速なモデルが、aiand の優先順位から割り当てられます。`aiand claude --model <id>`(1 回のセッション)も、そのセッションで同じように動作します。`aiand claude status` は、すべてのスロットのモデルを表示し、選んだモデルと異なるモデル(手で設定したものなど)を持つスロットがあれば警告します。ai& が提供できない `model` 設定は `off` まで退避されます。提供できるものはそのまま残り、Claude Code はそのモデルで起動します。
 
 `on` が変更するその他の内容:
 

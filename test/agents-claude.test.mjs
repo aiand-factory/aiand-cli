@@ -187,6 +187,24 @@ describe("claude on", () => {
     assert.equal(env.ANTHROPIC_DEFAULT_HAIKU_MODEL, FAST);
   });
 
+  test("a 0.8.0 wiring on the default follows a profile model set since", async () => {
+    await claudeAdapter.enable(enableInput());
+    const record = JSON.parse(readFileSync(addedJsonPath(), "utf8"));
+    delete record.choice;
+    writeFileSync(addedJsonPath(), JSON.stringify(record));
+    await claudeAdapter.enable(enableInput({ profileModel: OTHER }));
+    assertOnlyModel(readSettings(), OTHER);
+  });
+
+  test("a startup model setting other than the profile's choice is warned about", async () => {
+    seed({ model: FAST });
+    const result = await claudeAdapter.enable(enableInput({ profileModel: OTHER }));
+    assert.match(
+      result.warnings.join(" "),
+      /still starts on your model setting \(deepseek-ai\/deepseek-v4\.1-flash-1017\).*switch to zai-org\/glm-5\.3/,
+    );
+  });
+
   test("a fast slot the user set stays without --model, with a warning; --model replaces it", async () => {
     seed({ env: { ANTHROPIC_DEFAULT_HAIKU_MODEL: FAST } });
     const result = await claudeAdapter.enable(enableInput({ profileModel: OTHER }));

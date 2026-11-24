@@ -165,13 +165,35 @@ describe("only the chosen model is requested", () => {
     assert.deepEqual(requested(), only(CHOSEN));
   });
 
-  test("--fast-model is the only other model, and only for background calls", async () => {
+  test("--fast-model is the only other model: background calls and safety checks", async () => {
     await aiand("claude", "on", "--model", CHOSEN, "--fast-model", "zai-org/glm-5.3");
     await runFakeClaude();
     assert.deepEqual(requested(), {
       ...only(CHOSEN),
       generate_session_title: "zai-org/glm-5.3",
+      auto_mode: "zai-org/glm-5.3",
     });
+  });
+
+  test("a one-session launch after on --model X stays on X", async () => {
+    await aiand("claude", "on", "--model", CHOSEN);
+    await aiand("claude", "-p", "hi");
+    assert.deepEqual(requested(), only(CHOSEN));
+  });
+
+  test("a new profile model is followed by the next on", async () => {
+    await aiand("config", "set", "model", "zai-org/glm-5.3");
+    await aiand("claude", "on");
+    await aiand("config", "set", "model", CHOSEN);
+    await aiand("claude", "on");
+    await runFakeClaude();
+    assert.deepEqual(requested(), only(CHOSEN));
+  });
+
+  test("a safety-check model exported in the shell cannot win", async () => {
+    await aiand("claude", "on", "--model", CHOSEN);
+    await runFakeClaude([], { CLAUDE_CODE_AUTO_MODE_MODEL: MAIN_DEFAULT });
+    assert.deepEqual(requested(), only(CHOSEN));
   });
 
   test("a Claude alias in the agent's args still resolves to the chosen model", async () => {
@@ -191,9 +213,12 @@ describe("only the chosen model is requested", () => {
 });
 
 /** Run the stand-in Claude Code the way a user's plain `claude` would, outside aiand. */
-async function runFakeClaude(args = []) {
+async function runFakeClaude(args = [], extraEnv = {}) {
   const { spawn } = await import("node:child_process");
-  const child = spawn(join(bin, "claude"), args, { env: cliEnvFor(), stdio: "ignore" });
+  const child = spawn(join(bin, "claude"), args, {
+    env: { ...cliEnvFor(), ...extraEnv },
+    stdio: "ignore",
+  });
   const code = await new Promise((resolve) => child.on("close", resolve));
   assert.equal(code, 0, "fake claude");
 }

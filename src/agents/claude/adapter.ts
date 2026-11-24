@@ -3,7 +3,7 @@ import { chmod, mkdir, realpath, rm, stat, unlink, writeFile } from "node:fs/pro
 import { basename, dirname, join } from "node:path";
 import { CliError } from "../../cli/errors.js";
 import { printNotes } from "../../cli/output.js";
-import { agentHome, writeFileAtomic } from "../../config.js";
+import { writeFileAtomic } from "../../config.js";
 import { DEFAULT_FILE_MODE, existingFileMode, PRIVATE_FILE_MODE } from "../../fsutil.js";
 import { detectBinary } from "../detect.js";
 import {
@@ -36,6 +36,14 @@ import type {
 import { applyModelPicker, buildModelPicker, stripModelPicker } from "./picker.js";
 import { launchDefault, putBackUserDefault, type UserDefault } from "./put-back.js";
 import {
+  CLAUDE_ID,
+  type ClaudeRecord,
+  claudeSettingsPath,
+  modelSlots,
+  stickyChoice,
+  wiredSettingsPath,
+} from "./record.js";
+import {
   BASE_URL_KEY,
   buildClaudeSettings,
   CONTEXT_KEY,
@@ -63,7 +71,6 @@ import {
   ownedValues,
   parseSettings,
   routedByUs,
-  type SlotEntry,
   settingAt,
   slotEnv,
   slotReport,
@@ -71,7 +78,6 @@ import {
   TOKEN_KEY,
 } from "./settings.js";
 
-const CLAUDE_ID = "claude";
 const CLAUDE_BIN = "claude";
 
 const LIVE_ON_WARNING =
@@ -80,44 +86,6 @@ const LIVE_OFF_NOTE =
   "If you have Claude Code open in other windows, they switch back too. If one still uses ai&, restart it: type /exit, then run claude --continue.";
 /** Claude Code applies a settings change 1–1.5s after the write (measured on 2.1.311–2.1.319). */
 const LIVE_RELOAD_MS = 3000;
-
-/** What enable() recorded so off can tell its values from the user's. */
-type ClaudeRecord = {
-  path?: string;
-  /**
-   * The model the user chose (`--model`, or the profile's), which every slot
-   * follows, and `--fast-model`, the one other model they asked for. Always
-   * written, empty when nothing was chosen; absent only in a 0.8.0 record.
-   */
-  choice?: { model?: string; fast?: string };
-  env?: Env;
-  previousEnv?: Env;
-  removedModel?: string;
-  removedEnvModel?: string;
-  addedDeny?: string[];
-  createdKeys?: string[];
-  modelPicker?: unknown;
-  previousMode?: number;
-  created?: boolean;
-};
-
-function claudeSettingsPath(): string {
-  const dir = process.env.CLAUDE_CONFIG_DIR || join(agentHome(), ".claude");
-  return join(dir, "settings.json");
-}
-
-/**
- * While wired, the file `on` wrote: logout, uninstall and rotation run from
- * shells that may not share the CLAUDE_CONFIG_DIR it was wired under. An
- * unreadable record falls back to the current file, so status still reads one.
- */
-async function wiredSettingsPath(): Promise<string> {
-  try {
-    return (await getAddedState<ClaudeRecord>(CLAUDE_ID))?.path ?? claudeSettingsPath();
-  } catch {
-    return claudeSettingsPath();
-  }
-}
 
 const restoreEnv = (text: string, key: string, previous: string | undefined): string =>
   previous !== undefined ? jsoncSet(text, ["env", key], previous) : jsoncDelete(text, ["env", key]);
@@ -170,20 +138,6 @@ async function probeDetail(): Promise<ProbeDetail> {
     model: (active && startupModel(settings).model) || null,
     ...(active ? { baseUrl: String(env?.[BASE_URL_KEY]) } : {}),
   };
-}
-
-/** Every model slot in the wired file, and a warning for each the user did not choose. */
-async function modelSlots(): Promise<{ slots: SlotEntry[]; warnings: string[] } | undefined> {
-  let settings: Record<string, unknown>;
-  try {
-    const path = await wiredSettingsPath();
-    settings = parseSettings(path, await readTextIfExists(path));
-  } catch {
-    return undefined;
-  }
-  if (!routedByUs(asObject(settings.env))) return undefined;
-  const record = await getAddedState<ClaudeRecord>(CLAUDE_ID).catch(() => null);
-  return slotReport(settings, { chosen: record?.choice?.model, fast: record?.choice?.fast });
 }
 
 async function probe(): Promise<ProbeResult> {
@@ -244,17 +198,21 @@ async function enable(input: EnableInput): Promise<EnableResult> {
   const kept: Env = {};
   let chosen: string | undefined;
   let fastChosen: string | undefined;
+  let fromProfile = false;
   if (!isNative) {
     // A re-run without --model keeps the model the last `on` was told to use.
     const served = (id: string | undefined): string | undefined =>
       id !== undefined && inCatalog(catalog, id) ? id : undefined;
-    chosen = input.pinModel
+    // A --model sticks; a profile-sourced choice follows the current profile.
+    const sticky = input.pinModel
       ? input.model
-      : (served(prior?.choice?.model) ??
-        (prior?.choice === undefined
-          ? legacyChosen(priorEnv, catalog, input.profileModel)
-          : undefined) ??
-        chosenModel(catalog, undefined, input.profileModel));
+      : prior?.choice === undefined
+        ? legacyChosen(priorEnv, catalog, input.profileModel)
+        : prior.choice.fromProfile
+          ? undefined
+          : served(prior.choice.model);
+    chosen = sticky ?? chosenModel(catalog, undefined, input.profileModel);
+    fromProfile = sticky === undefined && chosen !== undefined;
     fastChosen = input.fastModel ?? (input.pinModel ? undefined : served(prior?.choice?.fast));
     const main = chosen ?? claudeDefaultModel(catalog, input.profileModel);
     const fast = fastModel(catalog, main, { chosen, fast: fastChosen });
@@ -366,16 +324,17 @@ async function enable(input: EnableInput): Promise<EnableResult> {
     choice: {
       ...(chosen !== undefined ? { model: chosen } : {}),
       ...(fastChosen !== undefined ? { fast: fastChosen } : {}),
+      ...(fromProfile ? { fromProfile } : {}),
     },
   });
 
   // --model pins the slots; a model setting (concrete, or an alias resolving
   // to another slot) can still decide where Claude Code starts.
   const { model: startsOn, setting } = startupModel(parseWritten(text));
-  if (input.pinModel && setting && startsOn !== input.model) {
+  if (chosen !== undefined && setting && startsOn !== chosen) {
     const shown = setting.value === startsOn ? startsOn : `${setting.value} → ${startsOn}`;
     warnings.push(
-      `Claude Code still starts on your ${setting.label} setting (${shown}); remove it or use /model to switch to ${input.model}.`,
+      `Claude Code still starts on your ${setting.label} setting (${shown}); remove it or use /model to switch to ${chosen}.`,
     );
   }
   if (chosen !== undefined) {
@@ -561,13 +520,15 @@ export const claudeAdapter: AgentAdapter = {
     // runs, as it does after `on`; an apiKeyHelper would keep the key out.
     // Every slot on the chosen model: Claude Code sends titles and other
     // background calls to the fast slot, and safety checks to the Sonnet slot.
-    const chosen = chosenModel(input.catalog, input.model, input.profileModel);
+    // Without --model, a --model given to `on` still holds.
+    const sticky = input.model === undefined ? await stickyChoice(input.catalog) : {};
+    const chosen = chosenModel(input.catalog, input.model ?? sticky.model, input.profileModel);
     const main = chosen ?? claudeDefaultModel(input.catalog, input.profileModel);
     const settings = buildClaudeSettings({
       apiKey: input.apiKey,
       baseUrl: claudeBaseUrl(input.baseUrl),
       main,
-      fast: fastModel(input.catalog, main, { chosen, fast: input.fastModel }),
+      fast: fastModel(input.catalog, main, { chosen, fast: input.fastModel ?? sticky.fast }),
       catalog: input.catalog,
     });
     const dir = await makeOverlayDir("aiand-claude-");
