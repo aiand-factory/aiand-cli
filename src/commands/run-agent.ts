@@ -130,6 +130,12 @@ function launchModels(
   split: Pick<Invocation, "model" | "fastModel" | "passthrough">,
 ): { model: string | undefined; fastModel: string | undefined; passthrough: string[] } {
   const flags = adapter.launchModelFlags ?? [];
+  const owned = adapter.fastModelFlag ? [...flags, "--fast-model"] : flags;
+  // An empty inline value would otherwise drop out and leave the default model.
+  for (const token of split.passthrough) {
+    const flag = owned.find((name) => token === `${name}=`);
+    if (flag !== undefined) throw new CliError(`${flag} needs a value.`);
+  }
   const keep = (value: string): boolean => adapter.passesLaunchModel?.(value) === true;
   const lifted = takeFlagValues(split.passthrough, flags, keep);
   const fast = adapter.fastModelFlag

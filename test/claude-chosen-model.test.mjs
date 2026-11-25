@@ -6,7 +6,7 @@
 // kind of request the way Claude Code does, against a logging mock gateway,
 // and read back which models were asked for.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 import {
@@ -190,6 +190,33 @@ describe("only the chosen model is requested", () => {
     assert.deepEqual(requested(), only(CHOSEN));
   });
 
+  test("a 0.8.0 record does not outrank a new profile model", async () => {
+    await aiand("claude", "on", "--model", "zai-org/glm-5.3");
+    // 0.8.0 recorded no choice: the slots alone said what --model had been.
+    assert.equal(dropRecordedChoice(cfg), true, "found the record's choice");
+    await aiand("config", "set", "model", CHOSEN);
+    await aiand("claude", "on");
+    await runFakeClaude();
+    assert.deepEqual(requested(), only(CHOSEN));
+  });
+
+  test("status warns when safety checks run on the main model but a fast model was chosen", async () => {
+    const { slotReport } = await import("../dist/agents/claude/settings.js");
+    const env = Object.fromEntries(
+      ["OPUS", "SONNET", "FABLE"].map((s) => [`ANTHROPIC_DEFAULT_${s}_MODEL`, CHOSEN]),
+    );
+    env.CLAUDE_CODE_SUBAGENT_MODEL = CHOSEN;
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = "zai-org/glm-5.3";
+    const report = slotReport({ model: CHOSEN, env }, { chosen: CHOSEN, fast: "zai-org/glm-5.3" });
+    assert.equal(report.warnings.filter((w) => w.includes("auto-mode checks")).length, 1);
+  });
+
+  test("an empty --model= is refused, not dropped", async () => {
+    const result = await runCli(["run-agent", "claude", "--", "--model="], { env: cliEnvFor() });
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /--model needs a value/);
+  });
+
   test("a safety-check model exported in the shell cannot win", async () => {
     await aiand("claude", "on", "--model", CHOSEN);
     await runFakeClaude([], { CLAUDE_CODE_AUTO_MODE_MODEL: MAIN_DEFAULT });
@@ -215,10 +242,46 @@ describe("only the chosen model is requested", () => {
 /** Run the stand-in Claude Code the way a user's plain `claude` would, outside aiand. */
 async function runFakeClaude(args = [], extraEnv = {}) {
   const { spawn } = await import("node:child_process");
-  const child = spawn(join(bin, "claude"), args, {
-    env: { ...cliEnvFor(), ...extraEnv },
-    stdio: "ignore",
-  });
+  const env = { ...cliEnvFor(), ...extraEnv };
+  // Windows gets only the .cmd wrapper, which spawn runs through cmd.exe alone.
+  const child =
+    process.platform === "win32"
+      ? spawn(
+          process.env.ComSpec || "cmd.exe",
+          (await import("../dist/cli/win-spawn.js")).cmdShimArgv(join(bin, "claude.cmd"), args),
+          { env, stdio: "ignore", windowsVerbatimArguments: true },
+        )
+      : spawn(join(bin, "claude"), args, { env, stdio: "ignore" });
   const code = await new Promise((resolve) => child.on("close", resolve));
   assert.equal(code, 0, "fake claude");
+}
+
+/** Remove the recorded choice from Claude's record, as a 0.8.0 `on` would have left it. */
+function dropRecordedChoice(dir) {
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) {
+      if (dropRecordedChoice(path)) return true;
+      continue;
+    }
+    if (!name.endsWith(".json")) continue;
+    const text = readFileSync(path, "utf8");
+    if (!text.includes('"choice"')) continue;
+    const strip = (value) => {
+      if (value && typeof value === "object") {
+        if ("choice" in value && "env" in value) {
+          delete value.choice;
+          return true;
+        }
+        return Object.values(value).some(strip);
+      }
+      return false;
+    };
+    const data = JSON.parse(text);
+    if (strip(data)) {
+      writeFileSync(path, JSON.stringify(data, null, 2));
+      return true;
+    }
+  }
+  return false;
 }

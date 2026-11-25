@@ -199,16 +199,17 @@ export function slotReport(
     ...SLOT_LABELS.map(([key, label]) => ({ key, label, model: read(key) })),
   ];
   const auto = read(AUTO_MODE_MODEL_KEY);
-  slots.push(
+  const checks: SlotEntry =
     auto !== null
       ? { key: AUTO_MODE_MODEL_KEY, label: "auto-mode checks", model: auto }
-      : { key: SONNET_SLOT, label: "auto-mode checks", model: read(SONNET_SLOT) },
-  );
+      : { key: SONNET_SLOT, label: "auto-mode checks", model: read(SONNET_SLOT) };
+  slots.push(checks);
   const main = choice.chosen ?? startup.model;
-  const fastSide = new Set([FAST_SLOT, AUTO_MODE_MODEL_KEY]);
+  // The checks follow --fast-model even when the Sonnet slot supplies their model.
+  const fastSide = (slot: SlotEntry) => slot === checks || slot.key === FAST_SLOT;
   const warnings: string[] = [];
   for (const slot of slots) {
-    const want = fastSide.has(slot.key) && choice.fast !== undefined ? choice.fast : main;
+    const want = fastSide(slot) && choice.fast !== undefined ? choice.fast : main;
     if (want === undefined || slot.model === null || slot.model === want) continue;
     warnings.push(
       `Claude Code's ${slot.label} model (${slot.key}) is ${slot.model}, not ${want}: it sends requests there too.`,
@@ -291,6 +292,8 @@ export function legacyChosen(
   catalog: Model[],
   profileModel: string | undefined,
 ): string | undefined {
+  // A served profile model is a current choice, and outranks one inferred from old slots.
+  if (profileModel !== undefined && inCatalog(catalog, profileModel)) return undefined;
   const values = new Set(MAIN_SLOTS.map((slot) => priorEnv[slot]));
   if (values.size !== 1) return undefined;
   const [model] = values;
