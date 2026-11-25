@@ -10,17 +10,18 @@ breaking changes while the command surface settles.
 ### Fixed
 
 - On OpenCode 2, `aiand run-agent opencode` and `aiand opencode` (when a
-  model of your own decides) now reach ai&. OpenCode 2 runs sessions in a
-  background service that never sees the inline config these commands pass,
-  so they start OpenCode with a private server (`--standalone`), placed after
-  `run`, `mini`, `stats`, `api`, `models` and `reload`, after the subcommand
-  of `auth` and `session` (`auth list`), past leading flags such as
-  `--print-logs`, and first for the TUI. Commands that take no
-  `--standalone` (`mcp`, `plugin`, `debug`, `pair`, `acp`, `service`,
-  `upgrade`, `uninstall`, and any OpenCode adds later) run without the inline
-  config, so one that starts OpenCode's background service cannot leave it
-  serving ai&'s config to your later plain `opencode`; `serve` keeps it.
-  OpenCode 1 gets the same arguments and environment as before.
+  model of your own decides, or `--model` names an ai& model) now reach ai&.
+  OpenCode 2 runs sessions in a background service that never sees the inline
+  config these commands pass, so they start OpenCode with a private server
+  (`--standalone`), placed after `run`, `mini`, `stats`, `api`, `models` and
+  `reload`, after the subcommand of `auth` and `session` (`auth list`), past
+  leading flags such as `--print-logs`, and first for the TUI. Commands that
+  take no `--standalone` on every OpenCode 2 release (`mcp`, `plugin`,
+  `debug`, `pair`, `acp`, `service`, `upgrade`, `uninstall`, and any OpenCode
+  adds later) run without the inline config, so one that starts OpenCode's
+  background service cannot leave it serving ai&'s config to your later
+  plain `opencode`; `serve` keeps it. OpenCode 1 gets the same arguments and
+  environment as before.
 - Bare `aiand copilot --model <id>` and `--model=<id>` launches now validate the
   requested id against the catalog and refuse to spawn when GitHub Copilot is
   already configured for a different model, instead of overriding that model

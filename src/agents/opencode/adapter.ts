@@ -30,9 +30,9 @@ import type {
 } from "../types.js";
 import { getApiModels, modelsFromCatalog, type OpencodeModelEntry } from "./models.js";
 import {
+  inlineConfigLaunch,
   OPENCODE_BIN,
   OPENCODE_V1_WARNING,
-  opencodeLaunch,
   opencodeMajorVersion,
 } from "./version.js";
 
@@ -584,12 +584,8 @@ export const opencodeAdapter: AgentAdapter = {
       options: { ...OPENCODE_OPTIONS, baseURL: opencodeBaseURL(input.baseUrl) },
       lockdown: true,
     });
-    const major = opencodeMajorVersion();
     return {
-      env: {
-        OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
-      },
-      buildLaunch: (passthrough: string[]) => opencodeLaunch(major, passthrough),
+      ...inlineConfigLaunch(config),
       cleanup: async () => {
         await rm(dir, { recursive: true, force: true });
       },
@@ -603,7 +599,7 @@ export const opencodeAdapter: AgentAdapter = {
       if (!named.startsWith(`${OPENCODE_PROVIDER_ID}/`) || process.env.OPENCODE_CONFIG_CONTENT) {
         return {};
       }
-      return { env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ small_model: named }) } };
+      return inlineConfigLaunch({ small_model: named });
     }
     const config = await readOpencodeConfig();
     const model = typeof config.model === "string" ? config.model : "";
@@ -611,10 +607,6 @@ export const opencodeAdapter: AgentAdapter = {
     if (process.env.OPENCODE_CONFIG_CONTENT) return {};
     const wired = Object.keys(aiandProviderField(config, "models") ?? {}).map((id) => ({ id }));
     const ref = `${OPENCODE_PROVIDER_ID}/${resolveDefault(wired, input.profileModel)}`;
-    const major = opencodeMajorVersion();
-    return {
-      env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: ref, small_model: ref }) },
-      buildLaunch: (passthrough: string[]) => opencodeLaunch(major, passthrough),
-    };
+    return inlineConfigLaunch({ model: ref, small_model: ref });
   },
 };

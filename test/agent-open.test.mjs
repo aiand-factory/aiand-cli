@@ -160,6 +160,32 @@ describe("aiand <agent> opens the agent", () => {
     assert.deepEqual(capturedArgs(state), ["run", "hi"]);
   });
 
+  test("OpenCode 2 gets a named ai& model's small_model through a private server", async () => {
+    const state = freshState();
+    seedCatalogCache(state.cfg, { opencodeModels: OPENCODE_BOTH });
+    const v2Bin = join(state.home, "..", "v2-bin");
+    plantStub(
+      v2Bin,
+      "opencode",
+      `if [ "$1" = "--version" ]; then echo "opencode v2.3.2"; exit 0; fi\n${CAPTURE_STUB}`,
+    );
+    mkdirSync(dirname(opencodeJson(state)), { recursive: true });
+    writeFileSync(opencodeJson(state), '{ "model": "anthropic/claude-sonnet-4-5" }\n');
+    const PATH = `${v2Bin}${delimiter}${process.env.PATH}`;
+    const inline = () => capturedEnv(state).match(/^OPENCODE_CONFIG_CONTENT=(.*)$/m);
+    const args = ["opencode", "run", "-m", "aiand/other/model", "hi"];
+    assert.equal((await cli(args, state, { PATH })).code, 42);
+    assert.deepEqual(capturedArgs(state), ["run", "--standalone", "-m", "aiand/other/model", "hi"]);
+    assert.deepEqual(JSON.parse(inline()[1]), { small_model: "aiand/other/model" });
+
+    // Without the flag the inline small_model would start the background
+    // service; mcp takes no flag, so it runs without the config.
+    const mcp = ["opencode", "mcp", "list", "--model", "aiand/other/model"];
+    assert.equal((await cli(mcp, state, { PATH })).code, 42);
+    assert.deepEqual(capturedArgs(state), ["mcp", "list", "--model", "aiand/other/model"]);
+    assert.equal(inline(), null);
+  });
+
   test("OpenCode opens on a model its wired provider lists, catalog or not", async () => {
     const state = freshState();
     mkdirSync(dirname(opencodeJson(state)), { recursive: true });

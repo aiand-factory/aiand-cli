@@ -9,7 +9,7 @@ export const OPENCODE_V1_WARNING =
 
 /**
  * The installed OpenCode's major version from `opencode --version`
- * ("opencode v2.0.29" on 2, "1.18.32" on 1), or null when it cannot be read.
+ * ("opencode v2.3.2" on 2, "1.18.32" on 1), or null when it cannot be read.
  */
 export function opencodeMajorVersion(): number | null {
   const env = { ...process.env };
@@ -32,9 +32,10 @@ export function opencodeMajorVersion(): number | null {
 
 // OpenCode 2 runs sessions in a background service that does not see the
 // launching shell's environment, so OPENCODE_CONFIG_CONTENT only reaches a
-// private server: `--standalone`. Where the flag parses (measured on 2.0.29):
-// after these command words; after the second word for auth and session; first
-// for the TUI. The rest reject it, and mcp, plugin, debug and pair start the
+// private server: `--standalone`. Where the flag parses (measured on 2.0.29 and
+// 2.3.2): after these command words; after the second word for auth and
+// session; first for the TUI. mcp, plugin and debug take it only from some 2.x
+// release on, pair and acp never; mcp, plugin, debug and pair start the
 // background service when none runs, which would then serve the inline config
 // to the user's later plain `opencode`: they, and any command not listed here,
 // run without the config. serve is that server, in the foreground: it keeps the
@@ -53,7 +54,17 @@ const NO_CONFIG_COMMANDS = new Set([
   "uninstall",
 ]);
 // Flags before the command word that take the next word as their value.
-const VALUE_FLAGS = new Set(["--log-level", "--completions", "--session", "-s", "--prompt"]);
+// --model, -m and --agent are the session flags `aiand opencode` passes on.
+const VALUE_FLAGS = new Set([
+  "--log-level",
+  "--completions",
+  "--session",
+  "-s",
+  "--prompt",
+  "--model",
+  "-m",
+  "--agent",
+]);
 
 /** The argv that makes OpenCode `major` read config from the launch env, and whether it gets that env. */
 export function opencodeLaunch(
@@ -91,4 +102,19 @@ export function opencodeLaunch(
   // A directory to open the TUI in; any other word may be a command this
   // release does not know, so it runs without the config.
   return statSync(word, { throwIfNoEntry: false })?.isDirectory() ? tui : noConfig;
+}
+
+/**
+ * Hands OpenCode `config` through OPENCODE_CONFIG_CONTENT, with the argv that
+ * lets it reach the session on OpenCode 2 (see opencodeLaunch).
+ */
+export function inlineConfigLaunch(config: Record<string, unknown>): {
+  env: Record<string, string>;
+  buildLaunch: (passthrough: string[]) => { args: string[]; keepEnv: boolean };
+} {
+  const major = opencodeMajorVersion();
+  return {
+    env: { OPENCODE_CONFIG_CONTENT: JSON.stringify(config) },
+    buildLaunch: (passthrough) => opencodeLaunch(major, passthrough),
+  };
 }

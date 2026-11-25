@@ -1578,6 +1578,10 @@ describe("opencode 2 support", () => {
         env,
       ],
       [2, ["--log-level=debug", "models"], ["--log-level=debug", "models", "--standalone"], env],
+      // A model or agent named before the command is a value, not a command.
+      [2, ["--model", "aiand/x"], ["--standalone", "--model", "aiand/x"], env],
+      [2, ["-m", "aiand/x", "run", "hi"], ["-m", "aiand/x", "run", "--standalone", "hi"], env],
+      [2, ["--agent", "plan", "mini"], ["--agent", "plan", "mini", "--standalone"], env],
       // auth and session take it only after their own subcommand; with none
       // they print help, so they get no flag and no config.
       [2, ["auth", "list"], ["auth", "list", "--standalone"], env],
