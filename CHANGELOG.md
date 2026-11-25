@@ -55,6 +55,7 @@ breaking changes while the command surface settles.
 
 ### Changed
 
+- After an upgrade, aiand prints one link to the release notes instead of four full changelog bullets.
 - The CLI now sends its requests through `HTTPS_PROXY`/`HTTP_PROXY` and trusts
   the system certificate store. It requires Node 22.21 or later.
 - Signing in again revokes the key the old sign-in created. `aiand login
