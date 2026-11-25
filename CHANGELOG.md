@@ -37,6 +37,16 @@ breaking changes while the command surface settles.
   to the chosen model, so titles and summaries stay on it instead of a model
   OpenCode picks; `off` hands back a `small_model` of your own. A `--model`
   or `-m` in `aiand opencode`'s arguments is no longer overridden.
+- Claude Code sessions started through aiand get the startup model's full
+  `context_window` from the ai& catalog, including 1M and larger windows,
+  instead of a shared 200K cap, so they no longer compact at 200K on a model
+  that holds more. The budget follows the model the session starts on: the
+  `--model` choice that every slot now uses, a kept `model` setting, or an
+  alias such as `aiand claude --model haiku`. A `--fast-model` does not
+  shrink it. Claude Code keeps one budget per process, so a `/model` switch
+  inside a session keeps the startup model's; start a new session with
+  `aiand claude --model <id>` to change it. `off` puts back a value of your
+  own.
 
 ### Added
 
@@ -56,6 +66,8 @@ breaking changes while the command surface settles.
 ### Changed
 
 - After an upgrade, aiand prints one link to the release notes instead of four full changelog bullets.
+- `/model` rows in Claude Code show each model's published context window
+  (`ai& · 1M context`) instead of the 200K cap.
 - The CLI now sends its requests through `HTTPS_PROXY`/`HTTP_PROXY` and trusts
   the system certificate store. It requires Node 22.21 or later.
 - Signing in again revokes the key the old sign-in created. `aiand login
