@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/aiandlabs/aiand-cli.git"
   },
-  "homepage": "https://docs.aiand.com",
+  "homepage": "https://docs.aiand.com/cli/",
   "bugs": {
     "url": "https://github.com/aiandlabs/aiand-cli/issues"
   },
