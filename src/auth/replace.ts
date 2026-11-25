@@ -1,8 +1,6 @@
-import { wiringCheckFor } from "../agents/registry.js";
-import { scrubSnapshotKeys } from "../agents/snapshot.js";
 import { revokeTokens } from "../api/device.js";
+import { CliError } from "../cli/errors.js";
 import { err, safeLine, style } from "../cli/output.js";
-import { redactSecrets } from "../cli/redact.js";
 import {
   CONSOLE_KEYS_URL,
   CREDENTIAL_ORIGIN,
@@ -11,11 +9,13 @@ import {
   type LoadedCredential,
   loadCredential,
   redactUrl,
+  storedBinding,
+  unprovenIssuer,
 } from "../config.js";
 
-/** What a login replacing `previous` needs to retire it afterwards. The
- * issuer is read before the login runs: a login can rewrite config.json,
- * which is where an unbound sign-in takes its issuer from. */
+/** What a login replacing `previous` needs to retire it. The issuer is read
+ * before the login runs: a login can rewrite config.json, which is where an
+ * unbound sign-in takes its issuer from. */
 export type ReplacedSignIn = {
   profile: string;
   previous: LoadedCredential;
@@ -34,86 +34,79 @@ export async function noteReplacedSignIn(
   };
 }
 
-export type RetireOutcome =
-  | "revoked"
-  | "kept"
-  | "failed"
-  | "pasted"
-  | "unrevocable"
-  | "unchanged"
-  | "unconfirmed";
+/** The sign-in about to be saved: its refresh token, if it has one, and where it was issued. */
+export type IncomingSignIn = { refreshToken?: string; binding: CredentialBinding };
+
+type RetireOutcome = "revoked" | "kept" | "failed" | "pasted" | "unrevocable" | "unchanged";
+
+export type RetireResult = {
+  outcome: RetireOutcome;
+  /** The replaced key, for scrubbing its copies once the new sign-in is saved. */
+  key?: string;
+};
+
+export type RetireOptions = {
+  keepRemote?: boolean;
+  /** Asks whether to replace the sign-in although its key could not be revoked. Absent off a terminal. */
+  ask?: (question: string) => Promise<boolean>;
+};
 
 /**
- * Revoke the key a login just replaced. Runs only after the new sign-in is
- * stored, so a failed or cancelled login never costs the old one. A failure
- * here is a warning, not an error: the new sign-in is already in place, and
- * the old refresh token is gone from disk, so the console is the way left.
- * Everything goes to stderr, so `--json` stdout stays one JSON document.
+ * Revoke the key the replaced sign-in minted. Runs under the profile's refresh
+ * lock, after the new tokens arrive and before they are saved, so the old
+ * refresh token is still on disk while it is spent: a revoke that fails leaves
+ * both sign-ins in hand. Then it asks, or, off a terminal, revokes the new key
+ * and throws, keeping the old sign-in. Everything goes to stderr, so `--json`
+ * stdout stays one JSON document.
  */
-export async function retireReplacedSignIn(
+export async function retireBeforeSave(
   replaced: ReplacedSignIn,
-  opts: { keepRemote?: boolean } = {},
-): Promise<RetireOutcome> {
-  const { profile, previous, binding } = replaced;
+  incoming: IncomingSignIn,
+  opts: RetireOptions = {},
+): Promise<RetireResult> {
+  const { profile, previous } = replaced;
+  // Re-read under the lock: the sign-in may have rotated during a slow browser login.
+  let target = previous;
+  try {
+    const now = await loadCredential(profile);
+    if (!now) return { outcome: "unchanged" };
+    target = now;
+  } catch {
+    // An unreadable store: the copy read when login started is the best there is.
+  }
+  const binding =
+    target.access_token === previous.access_token
+      ? replaced.binding
+      : (storedBinding(target) ?? replaced.binding);
+  const key = target.access_token;
   const stillValid = `The key "${profile}" signed in with before is still valid. Revoke it at ${CONSOLE_KEYS_URL} if you no longer need it.`;
-  let current: LoadedCredential | null;
-  try {
-    current = await loadCredential(profile);
-  } catch (error) {
-    // Without the stored sign-in there is no telling which key is current, so nothing is revoked.
-    err(
-      style.yellow(
-        `Could not read the stored sign-in for "${profile}", so the replaced key was not revoked: ${redactSecrets(safeLine((error as Error).message ?? String(error)))}`,
-      ),
-    );
-    err(style.dim(stillValid));
-    return "unconfirmed";
-  }
-  if (!current || current.access_token === previous.access_token) return "unchanged";
 
-  // A copy of the old key in a pre-0.8 snapshot would outlive the sign-in,
-  // revoked or not. Best-effort, like logout's scrub.
-  try {
-    await scrubSnapshotKeys([previous.access_token], wiringCheckFor);
-  } catch (error) {
-    err(
-      style.dim(
-        `Could not scrub snapshot copies of the replaced key: ${redactSecrets(safeLine((error as Error).message ?? String(error)))}`,
-      ),
-    );
-  }
-
-  if (previous.origin === CREDENTIAL_ORIGIN.PASTE) {
+  if (target.origin === CREDENTIAL_ORIGIN.PASTE) {
     err(style.dim(`The replaced key was pasted, so this CLI did not revoke it. ${stillValid}`));
-    return "pasted";
+    return { outcome: "pasted", key };
   }
   if (opts.keepRemote) {
     err(style.dim(`--keep-remote: the replaced key was not revoked. ${stillValid}`));
-    return "kept";
+    return { outcome: "kept", key };
   }
-  const refreshToken = previous.refresh_token;
-  if (!refreshToken) {
+  if (!target.refresh_token) {
     err(
       style.dim(
         `No refresh token was stored for the replaced key, so it could not be revoked. ${stillValid}`,
       ),
     );
-    return "unrevocable";
+    return { outcome: "unrevocable", key };
   }
   if (!binding) {
-    err(
-      style.yellow(
-        "The replaced sign-in did not record where it was issued, and this directory's config.json can't be trusted to say where, so its key was not revoked.",
-      ),
-    );
+    err(style.yellow(unprovenIssuer(profile, "its key was not revoked").message));
     err(style.dim(stillValid));
-    return "unrevocable";
+    return { outcome: "unrevocable", key };
   }
 
-  const result = await revokeTokens(binding.auth_url, refreshToken);
+  const result = await revokeTokens(binding.auth_url, target.refresh_token);
   if (result.revoked) {
     err(style.dim("Revoked the key this profile signed in with before."));
-    return "revoked";
+    return { outcome: "revoked", key };
   }
   const cause =
     result.status === undefined
@@ -121,9 +114,21 @@ export async function retireReplacedSignIn(
       : `it answered HTTP ${result.status}`;
   err(
     style.yellow(
-      `Could not revoke the replaced key at ${safeLine(redactUrl(binding.auth_url))}: ${cause}.`,
+      `Could not revoke the key "${profile}" signed in with before, at ${safeLine(redactUrl(binding.auth_url))}: ${cause}.`,
     ),
   );
-  err(style.dim(stillValid));
-  return "failed";
+  if (
+    opts.ask &&
+    (await opts.ask(
+      "Replace the sign-in anyway? Its old key stays valid until you revoke it in the console.",
+    ))
+  ) {
+    err(style.dim(stillValid));
+    return { outcome: "failed", key };
+  }
+  // The new key was minted for nothing: revoke it, so keeping the old sign-in leaves no stray key.
+  if (incoming.refreshToken) await revokeTokens(incoming.binding.auth_url, incoming.refreshToken);
+  throw new CliError(`Kept the existing sign-in for "${profile}".`, {
+    hint: `Try again later, or run \`aiand login --force --keep-remote\` to replace it and leave the old key valid, then revoke it at ${CONSOLE_KEYS_URL}.`,
+  });
 }

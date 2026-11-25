@@ -148,7 +148,7 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
     assert.match(stderr, /still valid/);
   });
 
-  test("a failed revoke warns, and the new sign-in stays", async () => {
+  test("a failed revoke off a terminal keeps the old sign-in and revokes the new key", async () => {
     await seed({
       access_token: "sk-old",
       refresh_token: "rt-old",
@@ -157,12 +157,48 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
     });
     state.rejectRefresh.push("rt-old");
 
-    const stderr = await login(["--force"]);
+    const captured = captureOutput();
+    try {
+      await assert.rejects(loginCommand.run(["--force"]), /Kept the existing sign-in/);
+    } finally {
+      captured.restore();
+    }
 
+    const kept = await config.loadCredential("default");
+    assert.equal(kept.access_token, "sk-old");
+    assert.equal(kept.refresh_token, "rt-old");
+    assert.deepEqual(
+      state.revocations,
+      [MINTED_REFRESH_TOKEN],
+      "the new key is revoked, not left orphaned",
+    );
+    assert.match(captured.log.err.join(""), /HTTP 500/);
+  });
+
+  test("the old key is revoked before the new sign-in is stored", async () => {
+    await seed({
+      access_token: "sk-old",
+      refresh_token: "rt-old",
+      origin: "device",
+      bound_to: stubBinding(),
+    });
+    let storedAtRevoke;
+    state.onLogout = () => {
+      storedAtRevoke = JSON.parse(readFileSync(join(dir, "credentials.json"), "utf8")).default;
+    };
+    try {
+      await login(["--force"]);
+    } finally {
+      state.onLogout = null;
+    }
+    assert.ok(storedAtRevoke, "a revoke was sent");
+    assert.notEqual(
+      storedAtRevoke.access_token,
+      MINTED_ACCESS_TOKEN,
+      "the new sign-in was not stored yet",
+    );
+    assert.deepEqual(state.revocations, ["rt-old"]);
     assert.equal((await config.loadCredential("default")).access_token, MINTED_ACCESS_TOKEN);
-    assert.match(stderr, /Could not revoke the replaced key/);
-    assert.match(stderr, /HTTP 500/);
-    assert.match(stderr, /still valid/);
   });
 
   test("a pasted key is replaced but never revoked", async () => {
@@ -222,7 +258,7 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
 
     assert.equal((await config.loadCredential("default")).access_token, MINTED_ACCESS_TOKEN);
     assert.deepEqual(state.revocations, []);
-    assert.match(stderr, /did not record where it was issued/);
+    assert.match(stderr, /does not record where it was issued/);
   });
 
   test("a step that fails after the new sign-in is stored still revokes the old key", async () => {
@@ -252,7 +288,39 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
     assert.deepEqual(state.revocations, ["rt-old"]);
   });
 
-  test("a stored sign-in that cannot be read back revokes nothing and says so", async () => {
+  test("a token rotated during the sign-in is the one revoked", async () => {
+    await seed({
+      access_token: "sk-old",
+      refresh_token: "rt-old",
+      origin: "device",
+      bound_to: stubBinding(),
+    });
+    const replaced = await replace.noteReplacedSignIn(
+      "default",
+      await config.loadCredential("default"),
+    );
+    // Another process (Codex's key export) rotates the old sign-in while the browser waits.
+    await seed({
+      access_token: "sk-rotated",
+      refresh_token: "rt-rotated",
+      origin: "device",
+      bound_to: stubBinding(),
+    });
+    const captured = captureOutput();
+    let result;
+    try {
+      result = await replace.retireBeforeSave(replaced, {
+        refreshToken: "rt-new",
+        binding: stubBinding(),
+      });
+    } finally {
+      captured.restore();
+    }
+    assert.deepEqual(result, { outcome: "revoked", key: "sk-rotated" });
+    assert.deepEqual(state.revocations, ["rt-rotated"]);
+  });
+
+  test("an unreadable store at revoke time falls back to the sign-in read when login started", async () => {
     await seed({
       access_token: "sk-old",
       refresh_token: "rt-old",
@@ -265,15 +333,53 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
     );
     writeFileSync(join(dir, "credentials.json"), "{ not json");
     const captured = captureOutput();
-    let outcome;
+    let result;
     try {
-      outcome = await replace.retireReplacedSignIn(replaced);
+      result = await replace.retireBeforeSave(replaced, {
+        refreshToken: "rt-new",
+        binding: stubBinding(),
+      });
     } finally {
       captured.restore();
     }
-    assert.equal(outcome, "unconfirmed");
-    assert.deepEqual(state.revocations, []);
-    assert.match(captured.log.err.join(""), /Could not read the stored sign-in/);
+    assert.equal(result.outcome, "revoked");
+    assert.deepEqual(state.revocations, ["rt-old"]);
+  });
+
+  test("asked after a failed revoke: yes replaces anyway, no keeps the old sign-in", async () => {
+    await seed({
+      access_token: "sk-old",
+      refresh_token: "rt-old",
+      origin: "device",
+      bound_to: stubBinding(),
+    });
+    state.rejectRefresh.push("rt-old");
+    const replaced = await replace.noteReplacedSignIn(
+      "default",
+      await config.loadCredential("default"),
+    );
+    const incoming = { refreshToken: "rt-new", binding: stubBinding() };
+    const questions = [];
+    const captured = captureOutput();
+    try {
+      const yes = await replace.retireBeforeSave(replaced, incoming, {
+        ask: async (q) => {
+          questions.push(q);
+          return true;
+        },
+      });
+      assert.equal(yes.outcome, "failed");
+      assert.deepEqual(state.revocations, [], "yes keeps the new key");
+      await assert.rejects(
+        replace.retireBeforeSave(replaced, incoming, { ask: async () => false }),
+        /Kept the existing sign-in/,
+      );
+    } finally {
+      captured.restore();
+    }
+    assert.equal(questions.length, 1);
+    assert.match(questions[0], /Replace the sign-in anyway/);
+    assert.deepEqual(state.revocations, ["rt-new"], "no revokes the new key");
   });
 
   test("without --force and no terminal, an existing sign-in is refused untouched", async () => {

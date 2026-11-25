@@ -9,20 +9,27 @@ breaking changes while the command surface settles.
 
 ### Added
 
+- `aiand login --keep-remote` replaces a sign-in and leaves the key the old
+  one created valid on the server.
 - Both installers finish with an agent summary: which coding-agent binaries
   are on `PATH`, the install hint for each one that is missing, and a nudge
   to run `aiand init`. The hint is that adapter's own install command for
   this machine (Jouzu included). The Copilot desktop app is left out; it is
   not a PATH binary. The installer still never wires agents itself.
 
-### Changed
+### Fixed
 
 - Signing in again revokes the key the old sign-in created. `aiand login
   --force`, or yes to "Sign in again and replace it?", used to leave that key
-  valid with nothing on the machine able to revoke it. The revoke runs after
-  the new sign-in is stored and goes to where the old key was issued, so a
-  failed or cancelled sign-in keeps the old one. `--keep-remote` keeps the old
-  key valid. A pasted key is never revoked.
+  valid with nothing on the machine able to revoke it. The revoke goes to
+  where the old key was issued, after the new tokens arrive and before they
+  are stored, so the old sign-in is still on disk if it fails: a terminal
+  asks whether to replace the sign-in anyway, and without one the old
+  sign-in is kept and the new key revoked. A failed or cancelled sign-in
+  keeps the old one. A pasted key is never revoked.
+
+### Changed
+
 - `aiand claude` and `aiand claude on` point Claude Code's auto-mode safety
   checks at the fast model (`CLAUDE_CODE_AUTO_MODE_MODEL`) instead of the main
   one. Each check sends about 30,000 input tokens, and on the main model the

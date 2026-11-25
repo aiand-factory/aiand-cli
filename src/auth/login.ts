@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { printRebakeNotes, rebakeForBinding } from "../agents/rebake.js";
 import { getUser, listOrgs, validateKey } from "../api/account.js";
-import { assertValidKey, openSession, type Session } from "../api/client.js";
+import { assertValidKey, openSession, type Session, withRefreshLock } from "../api/client.js";
 import {
   type DeviceCodeResponse,
   pollForToken,
@@ -43,6 +43,7 @@ import { fileTierNotOwnerOnly } from "../secrets.js";
 import { nowSeconds } from "../time.js";
 import { type BrowserFlowResult, signInViaLocalhostCallback } from "./browser.js";
 import { CREDENTIAL_SOURCE, storageLabel } from "./identity.js";
+import type { IncomingSignIn } from "./replace.js";
 
 /** Server-side name for a key minted on this machine. */
 const defaultKeyName = (): string => `aiand@${hostname() || "cli"}`;
@@ -71,9 +72,13 @@ async function rebakeAfterSignIn(
   printRebakeNotes(await rebakeForBinding(key, profile.name, binding));
 }
 
+/** Runs under the refresh lock just before the new sign-in is saved; throwing keeps the old one. */
+export type BeforeSave = (incoming: IncomingSignIn) => Promise<void>;
+
 export type DeviceLoginOptions = {
   profile?: string;
   json?: boolean;
+  beforeSave?: BeforeSave;
   /** Internal test seam: prompt streams for the paste fallback confirm. */
   input?: PromptInput;
   output?: PromptOutput;
@@ -227,7 +232,7 @@ export async function browserLogin(opts: DeviceLoginOptions = {}): Promise<void>
 async function completeSignIn(
   profile: ResolvedProfile,
   tokens: TokenResponse,
-  opts: { json?: boolean },
+  opts: { json?: boolean; beforeSave?: BeforeSave },
 ): Promise<void> {
   // A minted key belongs to exactly one org: the token response names it, and
   // when it does not, /api/orgs lists the authenticating key's org first. No
@@ -245,14 +250,18 @@ async function completeSignIn(
   const [user, orgs] = await Promise.all([getUser(pending), listOrgs(pending)]);
   const org = tokens.org ?? orgs[0] ?? null;
 
-  await saveCredential(profile.name, {
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
-    expires_at: nowSeconds() + tokens.expires_in,
-    origin: CREDENTIAL_ORIGIN.DEVICE,
-    bound_to,
-    user,
-    ...(org ? { org } : {}),
+  // The old sign-in is retired and the new one saved under one lock, so nothing rotates between.
+  await withRefreshLock(profile.name, async () => {
+    await opts.beforeSave?.({ refreshToken: tokens.refresh_token, binding: bound_to });
+    await saveCredential(profile.name, {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: nowSeconds() + tokens.expires_in,
+      origin: CREDENTIAL_ORIGIN.DEVICE,
+      bound_to,
+      user,
+      ...(org ? { org } : {}),
+    });
   });
 
   await activateProfile(profile.name, bound_to);
@@ -288,6 +297,7 @@ async function completeSignIn(
 
 export type PasteLoginOptions = {
   profile?: string;
+  beforeSave?: BeforeSave;
   /** Key supplied programmatically (tests, internal callers). */
   key?: string;
   /** `--with-token`: read the key from stdin. */
@@ -382,12 +392,15 @@ export async function pasteLogin(opts: PasteLoginOptions = {}): Promise<void> {
     credential: { access_token: key, origin: CREDENTIAL_ORIGIN.PASTE, bound_to },
   };
   const [org = null] = await listOrgs(pending);
-  const storage = await saveCredential(profile.name, {
-    access_token: key,
-    origin: CREDENTIAL_ORIGIN.PASTE,
-    bound_to,
-    user,
-    ...(org ? { org } : {}),
+  const storage = await withRefreshLock(profile.name, async () => {
+    await opts.beforeSave?.({ binding: bound_to });
+    return saveCredential(profile.name, {
+      access_token: key,
+      origin: CREDENTIAL_ORIGIN.PASTE,
+      bound_to,
+      user,
+      ...(org ? { org } : {}),
+    });
   });
 
   await activateProfile(profile.name, bound_to);

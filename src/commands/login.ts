@@ -1,6 +1,7 @@
 import { CREDENTIAL_SOURCE } from "../auth/identity.js";
-import { browserLogin, deviceLogin, pasteLogin } from "../auth/login.js";
-import { noteReplacedSignIn, type ReplacedSignIn, retireReplacedSignIn } from "../auth/replace.js";
+import { type BeforeSave, browserLogin, deviceLogin, pasteLogin } from "../auth/login.js";
+import { scrubKeyCopies } from "../auth/logout.js";
+import { noteReplacedSignIn, type ReplacedSignIn, retireBeforeSave } from "../auth/replace.js";
 import { bool, parse, str } from "../cli/args.js";
 import { CliError } from "../cli/errors.js";
 import { json, out, safeLine, style } from "../cli/output.js";
@@ -14,9 +15,9 @@ Usage
 
 Options
   --base-url <url>    point at a different API endpoint
-  --profile <name>    store the session under this profile
-  --force             sign in again even if this profile already has a session
-  --keep-remote       when replacing a session, keep its key valid on the server
+  --profile <name>    store the sign-in under this profile
+  --force             sign in again even if this profile is already signed in
+  --keep-remote       when replacing a sign-in, keep its key valid on the server
   --paste             paste an existing ai& API key (masked input)
   --with-token        read the key from stdin (aiand login --with-token < key.txt)
 
@@ -26,11 +27,11 @@ if that also fails (service unreachable) an interactive terminal offers to
 paste a key instead. Paste paths validate the key against the
 API first; a pasted key is never rotated or revoked by this CLI.
 
-Signing in again replaces the profile's session. Once the new sign-in is
-stored, the key the old session minted is revoked where it was issued, as
-\`aiand logout\` would. A sign-in that fails or is cancelled before the new
-one is stored keeps the old session; a step that fails after that still
-revokes the old key.`;
+Signing in again replaces the profile's sign-in. Before the new sign-in is
+stored, the key the old one minted is revoked where it was issued, as
+\`aiand logout\` would. A sign-in that fails or is cancelled keeps the old
+one. If the old key cannot be revoked, a terminal asks whether to replace the
+sign-in anyway; without one, the old sign-in is kept and the new key revoked.`;
 
 export async function run(argv: string[]): Promise<void> {
   const parsed = parse(argv, {
@@ -65,7 +66,7 @@ export async function run(argv: string[]): Promise<void> {
         },
       );
       if (!again) {
-        out("Keeping the existing session.");
+        out("Keeping the existing sign-in.");
         return;
       }
     } else {
@@ -79,28 +80,38 @@ export async function run(argv: string[]): Promise<void> {
     ? await noteReplacedSignIn(profile.name, existing)
     : null;
 
-  // A step that fails after the new sign-in is stored must not skip retiring the old one.
-  let failure: unknown;
-  try {
-    await signIn();
-  } catch (error) {
-    failure = error;
+  let replacedKey: string | undefined;
+  const beforeSave: BeforeSave | undefined = replaced
+    ? async (incoming) => {
+        const r = await retireBeforeSave(replaced, incoming, {
+          keepRemote: bool(parsed, "keep-remote"),
+          ask: isInteractive() ? (question) => confirm(question, { default: false }) : undefined,
+        });
+        replacedKey = r.key;
+      }
+    : undefined;
+
+  await signIn();
+  // The old key's copies in pre-0.8 snapshots would outlive the sign-in it belonged to.
+  if (replaced) {
+    await scrubKeyCopies([
+      ...new Set([replaced.previous.access_token, replacedKey].filter((k) => k !== undefined)),
+    ]);
   }
-  if (replaced) await retireReplacedSignIn(replaced, { keepRemote: bool(parsed, "keep-remote") });
-  if (failure !== undefined) throw failure;
 
   async function signIn(): Promise<void> {
     if (pasteMode) {
       await pasteLogin({
         profile: profile.name,
+        beforeSave,
         fromStdin: bool(parsed, "with-token"),
         interactive: bool(parsed, "paste"),
         json: bool(parsed, "json"),
       });
     } else if (isInteractive()) {
-      await browserLogin({ profile: profile.name, json: bool(parsed, "json") });
+      await browserLogin({ profile: profile.name, json: bool(parsed, "json"), beforeSave });
     } else {
-      await deviceLogin({ profile: profile.name, json: bool(parsed, "json") });
+      await deviceLogin({ profile: profile.name, json: bool(parsed, "json"), beforeSave });
     }
   }
 }
