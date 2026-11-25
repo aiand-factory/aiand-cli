@@ -105,7 +105,7 @@ describe("claude on", () => {
     const { env } = readSettings();
     assert.equal(env.CLAUDE_CODE_AUTO_MODE_MODEL, FAST);
     assert.equal(env.CLAUDE_CODE_AUTO_MODE_SERVER, "0");
-    // --model puts every slot on the chosen model, safety checks included (AIA-3330).
+    // --model puts every slot on the chosen model, safety checks included.
     await claudeAdapter.enable(enableInput({ model: OTHER, pinModel: true }));
     assert.equal(
       readSettings().env.CLAUDE_CODE_AUTO_MODE_MODEL,
