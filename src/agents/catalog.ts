@@ -123,6 +123,23 @@ export function validateCatalogModel(catalog: Model[], id: string, flag = "--mod
 }
 
 /**
+ * A model named in an agent's own args as its catalog id: the id itself, or
+ * the `aiand/<id>` ref the agents' provider form uses. Anything else comes
+ * back as given, for the caller's catalog check to refuse.
+ */
+export function servedModelId(catalog: readonly Pick<Model, "id">[], value: string): string {
+  const has = (id: string): boolean => catalog.some((model) => model.id === id);
+  if (has(value)) return value;
+  const bare = value.startsWith(AGENT_PROVIDER_PREFIX)
+    ? value.slice(AGENT_PROVIDER_PREFIX.length)
+    : value;
+  return has(bare) ? bare : value;
+}
+
+/** The provider id every adapter registers ai& under, as an agent model-ref prefix. */
+const AGENT_PROVIDER_PREFIX = "aiand/";
+
+/**
  * Pick the model written into agent configs: an explicit profile model wins
  * when it still exists in the catalog, then the curated default order, then
  * whatever the gateway lists first.

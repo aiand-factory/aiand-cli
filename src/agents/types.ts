@@ -15,10 +15,16 @@ export type EnableInput = {
   apiKey: string; // resolved session key, baked literal
   model: string; // resolved default or --model
   pinModel?: boolean; // --model was passed (not native): the adapter pins it where it keeps its model
+  fastModel?: string; // --fast-model (adapters with fastModelFlag): the one other model the user asked for
   profileModel?: string; // the profile's default, for adapters with their own default order
   profileName: string; // the aiand profile, for adapters that ask aiand for the key themselves
   catalog: Model[]; // live /v1/models
   baseUrl: string; // API origin (api.json fetches)
+};
+
+export type ModelSlots = {
+  slots: { key: string; label: string; model: string | null }[];
+  warnings: string[];
 };
 
 export type EnableResult = {
@@ -45,6 +51,7 @@ export type SessionLaunchInput = {
   // Codex asks `aiand key export` for the key, so when it came from
   // AIAND_API_KEY the launcher hands that variable back.
   model: string | undefined; // --model, catalog-validated; undefined = adapter picks
+  fastModel?: string; // --fast-model, catalog-validated (adapters with fastModelFlag)
   profileModel?: string; // the profile's default, for adapters that must bake a concrete model
   profileName: string; // the aiand profile, for adapters that ask aiand for the key themselves
   catalog: Model[]; // live /v1/models (adapters that build model maps)
@@ -85,6 +92,16 @@ export type AgentAdapter = {
   // ^ Such a file is never snapshotted: it is not a pre-aiand state. Keys are
   // checked separately, so an adapter without a marker leaves this out.
   probe(): Promise<ProbeResult>; // read real config, no flags trusted
+  modelSlots?(): Promise<ModelSlots | undefined>;
+  // ^ Every model the wired config can send requests to, and a warning for
+  // each one the user did not choose. Undefined when not wired.
+  fastModelFlag?: boolean; // accepts --fast-model (a separate model for background calls)
+  launchModelFlags?: readonly string[];
+  // ^ The agent's own flags naming its model. A session launch takes their
+  // value from the passthrough as its --model, so every slot follows it.
+  passesLaunchModel?(value: string): boolean;
+  // ^ A launch-model value the agent resolves itself (an alias): it stays in
+  // the passthrough.
   enable(input: EnableInput): Promise<EnableResult>;
   enableGuard?(opts: GuardOptions): Promise<void>;
   // ^ Runs inside agentOn, before the snapshot + enable(). Adapters whose

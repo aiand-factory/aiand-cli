@@ -91,8 +91,10 @@ aiand run-agent opencode # or: use ai& for this one session, change nothing
 models from the live catalog, so plain `opencode` uses ai& afterwards. Your
 other providers and your own edits are left alone. If you already chose a
 model it stays chosen; pass `--model <id>` to switch, or `--model native` to
-keep OpenCode's own default. `aiand opencode` still opens on an ai& model,
-for that run only.
+keep OpenCode's own default. `small_model`, which OpenCode uses for titles and
+summaries, is set to the same ai& model, so OpenCode does not pick another one;
+`off` hands back a `small_model` of your own. `aiand opencode` still opens on
+an ai& model, for that run only.
 
 `off` removes only what aiand wrote. If a config ever ends up in a state you
 do not want, `aiand restore opencode --force` puts back the exact file from
@@ -113,10 +115,26 @@ aiand claude off         # back to Anthropic's models
 
 `on` writes an `env` block into `~/.claude/settings.json` (or
 `$CLAUDE_CONFIG_DIR/settings.json`): the gateway URL, your key, and a catalog
-model for every slot. The main slots get a vision model unless your profile
-names a model; background work (the `haiku` slot) gets a fast one. Pass
-`--model <id>` to switch the main slots. A `model` setting ai& cannot serve is
-set aside until `off`; one it can serve is kept, and Claude Code starts on it.
+model for every slot. Claude Code sends requests from more than one slot:
+session titles and other background calls go to the `haiku` slot, and auto
+mode's safety checks to the Sonnet slot.
+
+- **You chose a model** (`--model <id>`, or `aiand config set model <id>`):
+  every slot gets that model, the `haiku` slot too, so Claude Code sends
+  requests to no other model. That includes auto mode's safety checks:
+  `on` writes `CLAUDE_CODE_AUTO_MODE_MODEL` too, so a value exported in your
+  shell cannot move them. Add `--fast-model <id>` to give background calls
+  and safety checks a separate model. A re-run of `on`, and `aiand claude`
+  sessions, keep a `--model` choice; a profile model is followed as it
+  changes.
+- **You did not:** the main slots get a vision model and the `haiku` slot a
+  fast one, from aiand's preferred order.
+
+`aiand claude --model <id>` (one session) does the same for that session.
+`aiand claude status` lists the model in every slot and warns about any slot
+that holds a model other than the one you chose, such as one you set by hand.
+A `model` setting ai& cannot serve is set aside until `off`; one it can serve
+is kept, and Claude Code starts on it.
 
 What else `on` changes:
 
@@ -133,6 +151,17 @@ What else `on` changes:
   add `· text only`.
 - **Other clouds.** The Bedrock, Vertex and Foundry switches are written as
   `0`, so one left on elsewhere cannot route Claude Code away from ai&.
+- **Auto-mode safety checks.** In auto mode (Claude Code's default permission
+  mode) Claude Code asks a model whether each checked action is safe. Each check
+  sends about 30,000 input tokens, and on the main model they cost more than the
+  coding work. `on` points them at the fast model with
+  `CLAUDE_CODE_AUTO_MODE_MODEL` (Claude Code 2.1.302 or later; older versions
+  ignore it and use the main model). It also sets
+  `CLAUDE_CODE_AUTO_MODE_SERVER=0`, so Claude Code always runs the checks
+  itself: the checks Anthropic runs server-side need Claude models, and without
+  that setting Claude Code would ask for them, fall back, and show a notice
+  that a later release will ask about or deny every checked action instead.
+  See [ADR 2](adr/0002-claude-auto-mode-safety-checks.md).
 - **WebSearch** is denied because it runs on Anthropic's servers. WebFetch
   still works.
 - **`/effort`** is sent to ai& as the model's reasoning level, so pick one the
@@ -317,9 +346,10 @@ inside the overlay and the real `~/.hermes`, including its `config.yaml`, is
 never written. The overlay ships the same dedicated `aiand` model provider, and
 its `config.yaml` pins the model from the live catalog: use `--model <id>` to
 choose (a session launch always names a model, so `--model native` is the usual
-catalog error). `--provider`, `--model`, and `-m` in the arguments after `--`
-are stripped so nothing can override the injected routing, and the overlay is
-removed after the session ends: success, failure, or Ctrl-C.
+catalog error). `--model` or `-m` in the arguments after `--` counts as
+`--model`: the session runs on it. `--provider` there is stripped so nothing
+can override the injected routing, and the overlay is removed after the
+session ends: success, failure, or Ctrl-C.
 
 ## Jouzu
 

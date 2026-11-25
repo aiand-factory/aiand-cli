@@ -6,6 +6,8 @@
 
 `aiand` は ai& の推論 API を使うためのコマンドラインツールです。ブラウザでサインインし、そのあとで Claude Code、OpenCode、Codex などのコーディングエージェントを ai& につなぎます。プロキシやデーモンは使いません。プロンプトの送信、モデルと料金の一覧表示、リクエストと使用量の確認もできます。
 
+ガイド: [docs.aiand.com/ja/cli](https://docs.aiand.com/ja/cli/)
+
 ## クイックスタート
 
 1. **インストールします。** Node.js 22 以降が必要です。
@@ -79,10 +81,10 @@ Claude Code で ai& を使う方法は 2 つあります。1 回のセッショ�
 ```bash
 aiand claude                              # Claude Code のセッションを 1 つ ai& で開く
 aiand claude -p "explain this repo"       # Claude Code に引数を渡す
-aiand run-agent claude --model <id>       # このセッションで使う ai& のモデルを選ぶ
+aiand claude --model <id>                 # このセッションで使う ai& のモデルを選ぶ
 ```
 
-`aiand claude` は Claude Code のセッションを 1 つ ai& で起動し、Claude Code の設定には何も書き込みません。ほかのターミナルで開いた通常の `claude` のセッションは、その前も最中もあとも、Anthropic のモデルを使い続けます。`claude` のあとに続く引数は、そのまま Claude Code に渡されます。モデルを選ぶには `aiand run-agent claude --model <id>` を使います。モデルの一覧は `aiand models` で確認できます。
+`aiand claude` は Claude Code のセッションを 1 つ ai& で起動し、Claude Code の設定には何も書き込みません。ほかのターミナルで開いた通常の `claude` のセッションは、その前も最中もあとも、Anthropic のモデルを使い続けます。`claude` のあとに続く引数は、そのまま Claude Code に渡されます。ただし `--model <id>` は、このセッションのすべてのモデルのスロットで使う ai& のモデルを選びます。モデルの一覧は `aiand models` で確認できます。
 
 `/model` で ai& のモデルを選んで既定として保存した場合、Claude Code が保存した直後に、aiand が元の既定のモデルに戻します。そのため、ai& のセッションがまだ開いているあいだに起動した通常の `claude` でも、使えるモデルで起動します。`aiand claude on` が有効なあいだは、すべての `claude` が ai& で動くため、ai& の既定のモデルはそのまま残ります。
 
@@ -118,6 +120,8 @@ aiand login --with-token < key.txt # 標準入力から読み込む
 ```
 
 `aiand logout` は、`login` が作成したキーを無効化するか確認します。無効化の要求が ai& に届かなかった場合はサインインしたままになるので、もう一度 `logout` を実行できます。`--keep-remote` を付けると、キーを無効化せずにこのマシンからだけ削除します。貼り付けたキーはこのマシンから削除されるだけです。[コンソール](https://console.aiand.com/api-keys)で無効化してください。
+
+もう一度サインインする(`aiand login --force` を実行するか、「Sign in again and replace it?」に yes と答える)と、新しいサインインを保存したあとで、以前のサインインが作成したキーを無効化します。新しいサインインを保存する前にサインインに失敗した場合や中断した場合は、以前のサインインが残ります。保存したあとの処理が失敗した場合も、古いキーは無効化します。無効化の要求が ai& に届かなかった場合も新しいサインインはそのまま有効で、aiand がその旨を表示します。コンソールで古いキーを無効化してください。`--keep-remote` を付けると、古いキーを有効なまま残します。貼り付けたキーは無効化しません。
 
 キーには有効期限があります。aiand は期限の最後の 3 日間に自動でローテーションし、サーバーがキーを拒否した場合はすぐにローテーションします。
 
@@ -339,6 +343,18 @@ aiand config path                                # ファイルの場所
 | `NO_COLOR` | 色を無効にする |
 
 インストーラーには専用の変数(`AIAND_VERSION`、`AIAND_DIR`、`AIAND_NO_MODIFY_PATH`)があります。`install.sh` と `install.ps1` の冒頭を参照してください。
+
+## 企業プロキシの内側で使う
+
+`HTTPS_PROXY` または `HTTP_PROXY` のいずれかが設定されている場合、CLI はそのプロキシ経由でリクエストを送信します。`NO_PROXY` の設定も尊重します。
+
+CLI は、オペレーティングシステムの証明書ストアにインストールされている証明書を信頼します。そのため、企業の証明書で HTTPS を検査するプロキシも、その証明書が証明書ストアにインストールされていれば利用できます。
+
+企業の証明書がシステムの証明書ストアにない場合は、その証明書を含む PEM ファイルを `NODE_EXTRA_CA_CERTS` に設定してください。
+
+CLI が起動するコーディングエージェントも、同じ変数をそれぞれ読み取ります。
+
+Node 22.21 以降が必要です。
 
 ## トラブルシューティング
 

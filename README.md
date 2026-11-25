@@ -9,6 +9,8 @@ browser, then points your coding agent at ai& (Claude Code, OpenCode, Codex and
 others) without a proxy or a daemon. It also sends prompts, lists models and
 prices, and shows your requests and usage.
 
+Guide: [docs.aiand.com/cli](https://docs.aiand.com/cli/)
+
 ## Quick start
 
 1. **Install.** You need Node.js 22 or newer.
@@ -97,14 +99,14 @@ session.
 ```bash
 aiand claude                              # open one Claude Code session on ai&
 aiand claude -p "explain this repo"       # pass arguments to Claude Code
-aiand run-agent claude --model <id>       # pick the ai& model for this session
+aiand claude --model <id>                 # pick the ai& model for this session
 ```
 
 `aiand claude` starts one Claude Code session on ai& and writes nothing to your
 Claude Code settings. Plain `claude` sessions in other terminals keep using
 Anthropic's models, before, during and after. Everything after `claude` goes to
-Claude Code as typed. To choose the model, use `aiand run-agent claude
---model <id>`; `aiand models` lists them.
+Claude Code as typed, except `--model <id>`, which picks the ai& model for every
+model slot of the session; `aiand models` lists them.
 
 If you pick an ai& model in `/model` and save it as your default, aiand puts
 your own default back as soon as Claude Code saves it, so a plain `claude`, even
@@ -123,7 +125,8 @@ aiand claude off                 # back to Anthropic's models
 
 - **`aiand claude on`** writes the gateway URL, your key and model settings into
   `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`). After that,
-  every `claude` uses ai&. Pass `--model <id>` to pick a model.
+  every `claude` uses ai&. Pass `--model <id>` to pick a model; Claude Code
+  then sends every request to it, background calls included.
 - **Sessions that are already open switch too.** Claude Code applies `on` and
   `off` to running sessions: `on` moves them to ai& at once, and `off` moves
   them back. `off` takes about three seconds while running sessions reload. If
@@ -161,6 +164,14 @@ aiand login --with-token < key.txt # read it from stdin
 reach ai&, you stay signed in so you can run `logout` again; `--keep-remote`
 forgets the key here without revoking it. A key you pasted in is only removed
 from this machine: revoke it in the [console](https://console.aiand.com/api-keys).
+
+Signing in again (`aiand login --force`, or yes to "Sign in again and replace
+it?") revokes the key the old sign-in created, once the new one is stored. A
+sign-in that fails or is cancelled before the new one is stored keeps the old
+one; if a later step fails, the old key is still revoked. If the revoke cannot
+reach ai&, the new sign-in still stands and aiand says so: revoke the old key
+in the console. `--keep-remote` keeps the old key valid. A pasted key is never
+revoked.
 
 Keys expire. aiand rotates one automatically in its last 3 days, or right away
 if the server rejects it.
@@ -522,6 +533,22 @@ not stored, so it goes wherever you point it.
 
 The installers read their own variables (`AIAND_VERSION`, `AIAND_DIR`,
 `AIAND_NO_MODIFY_PATH`): see the top of `install.sh` and `install.ps1`.
+
+## Behind a corporate proxy
+
+The CLI sends its requests through `HTTPS_PROXY` or `HTTP_PROXY` when either is
+set. It honours `NO_PROXY`.
+
+It trusts certificates installed in the operating system's certificate store.
+A proxy that inspects HTTPS with a company certificate works when that
+certificate is installed there.
+
+If the company certificate is not in the system store, set
+`NODE_EXTRA_CA_CERTS` to a PEM file that contains it.
+
+Coding agents the CLI opens read the same variables themselves.
+
+Node 22.21 or later is required.
 
 ## Troubleshooting
 

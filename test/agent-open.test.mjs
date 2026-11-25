@@ -48,6 +48,12 @@ const cli = (args, state, env = {}) =>
     }),
   });
 
+/** OpenCode's model map with both seeded catalog models. */
+const OPENCODE_BOTH = {
+  "zai-org/glm-5.3": { id: "zai-org/glm-5.3", name: "GLM 5.3" },
+  "other/model": { id: "other/model", name: "Other" },
+};
+
 const capturedArgs = (state) =>
   readFileSync(`${state.capture}.args`, "utf8").split("\n").slice(0, -1);
 const capturedEnv = (state) => readFileSync(`${state.capture}.env`, "utf8");
@@ -96,7 +102,32 @@ describe("aiand <agent> opens the agent", () => {
       "anthropic/claude-sonnet-4-5",
     );
     const inline = capturedEnv(state).match(/^OPENCODE_CONFIG_CONTENT=(.*)$/m);
-    assert.deepEqual(JSON.parse(inline[1]), { model: "aiand/zai-org/glm-5.3" });
+    // Titles and summaries too (small_model): OpenCode's own pick could be another model.
+    assert.deepEqual(JSON.parse(inline[1]), {
+      model: "aiand/zai-org/glm-5.3",
+      small_model: "aiand/zai-org/glm-5.3",
+    });
+  });
+
+  // A model named in the agent's own args is the one wired and used.
+  test("a fresh opencode opened with its own -m is wired on that model", async () => {
+    const state = freshState();
+    seedCatalogCache(state.cfg, { opencodeModels: OPENCODE_BOTH });
+    const { code } = await cli(["opencode", "-m", "aiand/other/model", "run", "hi"], state);
+    assert.equal(code, 42);
+    assert.equal(JSON.parse(readFileSync(opencodeJson(state), "utf8")).model, "aiand/other/model");
+    assert.deepEqual(capturedArgs(state), ["-m", "aiand/other/model", "run", "hi"]);
+  });
+
+  test("a model in OpenCode's args is not overridden by an inline default", async () => {
+    const state = freshState();
+    seedCatalogCache(state.cfg, { opencodeModels: OPENCODE_BOTH });
+    mkdirSync(dirname(opencodeJson(state)), { recursive: true });
+    writeFileSync(opencodeJson(state), '{ "model": "anthropic/claude-sonnet-4-5" }\n');
+    assert.equal((await cli(["opencode", "--model=aiand/other/model"], state)).code, 42);
+    // Not the inline default model; titles and summaries on the one named.
+    const inline = capturedEnv(state).match(/^OPENCODE_CONFIG_CONTENT=(.*)$/m);
+    assert.deepEqual(JSON.parse(inline[1]), { small_model: "aiand/other/model" });
   });
 
   test("OpenCode opens on a model its wired provider lists, catalog or not", async () => {
@@ -105,11 +136,12 @@ describe("aiand <agent> opens the agent", () => {
     writeFileSync(opencodeJson(state), '{ "model": "anthropic/claude-sonnet-4-5" }\n');
     assert.equal((await cli(["config", "set", "model", "other/model"], state)).code, 0);
     const inline = () => JSON.parse(capturedEnv(state).match(/^OPENCODE_CONFIG_CONTENT=(.*)$/m)[1]);
+    const glm = { model: "aiand/zai-org/glm-5.3", small_model: "aiand/zai-org/glm-5.3" };
     assert.equal((await cli(["opencode"], state)).code, 42);
-    assert.deepEqual(inline(), { model: "aiand/zai-org/glm-5.3" });
+    assert.deepEqual(inline(), glm);
     rmSync(join(state.cfg, "model-catalog.json"));
     assert.equal((await cli(["opencode"], state)).code, 42);
-    assert.deepEqual(inline(), { model: "aiand/zai-org/glm-5.3" });
+    assert.deepEqual(inline(), glm);
   });
 
   test("a fresh jouzu is wired in Jouzu's dir and opens on the ai& model it wired", async () => {

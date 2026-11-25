@@ -1,4 +1,9 @@
-import { agentBaseEnv, installIfMissing, runAgentBinary } from "../agents/launch.js";
+import {
+  agentBaseEnv,
+  installIfMissing,
+  runAgentBinary,
+  takeFlagValues,
+} from "../agents/launch.js";
 import { AGENTS } from "../agents/registry.js";
 import { agentOff, agentOn, agentStatus } from "../agents/setup.js";
 import type { AgentAdapter, Verb } from "../agents/types.js";
@@ -13,7 +18,10 @@ const VERBS: Verb[] = ["on", "off", "status"];
 
 export function agentHelp(adapter: AgentAdapter): string {
   const flags = [
-    "      --model <id>        model to route (default: catalog preferred)",
+    "      --model <id>        model for everything the agent sends (default: catalog preferred)",
+    ...(adapter.fastModelFlag
+      ? ["      --fast-model <id>   a separate model for background calls (default: --model)"]
+      : []),
     "      --force             escape quit-guards when the app holds config in memory",
     "      --json              machine-readable output",
     "      --profile <name>    use a stored profile",
@@ -69,6 +77,7 @@ export async function runAgentCommand(
   // GLOBAL_OPTIONS so `-h` keeps its short (see args.ts preserve-short).
   const options = {
     model: { type: "string" },
+    "fast-model": { type: "string" },
     force: { type: "boolean", default: false },
   } as const;
   const parsed = parse([...argv, ...globalArgs], options);
@@ -110,7 +119,13 @@ async function runOpen(
   }
   const wired = !retarget && (await adapter.probe()).active;
   if (!wired) {
-    const result = await agentOn(adapter, { profile });
+    // A model in the agent's own args is the one to wire, not our default:
+    // otherwise later plain launches stay on a model the user never picked.
+    const [launchModel] = takeFlagValues(
+      passthrough,
+      adapter.launchModelFlags ?? ["--model"],
+    ).values.slice(-1);
+    const result = await agentOn(adapter, { profile, launchModel });
     err(style.green(`${adapter.label} is now using ai&.`));
     printNotes(result.warnings);
   } else {
@@ -152,6 +167,7 @@ async function runOpen(
 async function runOn(adapter: AgentAdapter, parsed: Parsed, jsonOut: boolean): Promise<void> {
   const result = await agentOn(adapter, {
     model: str(parsed, "model"),
+    fastModel: str(parsed, "fast-model"),
     force: bool(parsed, "force"),
     profile: str(parsed, "profile"),
   });
@@ -192,7 +208,12 @@ async function runStatus(adapter: AgentAdapter, jsonOut: boolean): Promise<void>
     ],
     ["state", stateLabel(result.state)],
     ["model", modelLabel],
+    // Every model the agent can send requests to, so none is a surprise.
+    ...(result.slots ?? []).map(
+      ({ label, model }) => [`  ${label}`, model ?? styled(style.dim, "—")] as [string, string],
+    ),
   ]);
+  printNotes(result.warnings ?? []);
   if (!result.installed) {
     err(style.dim(`Install it with: ${adapter.install.command}  See: ${adapter.install.url}`));
   }

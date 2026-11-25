@@ -14,12 +14,77 @@ breaking changes while the command surface settles.
   puts back the model the app had selected before, and `status` shows the
   model new sessions start on.
 
+
+- The CLI now sends its requests through `HTTPS_PROXY`/`HTTP_PROXY` and trusts
+  the system certificate store. It requires Node 22.21 or later.
+- Signing in again revokes the key the old sign-in created. `aiand login
+  --force`, or yes to "Sign in again and replace it?", used to leave that key
+  valid with nothing on the machine able to revoke it. The revoke runs after
+  the new sign-in is stored and goes to where the old key was issued, so a
+  failed or cancelled sign-in keeps the old one. `--keep-remote` keeps the old
+  key valid. A pasted key is never revoked.
+- `aiand claude` and `aiand claude on` point Claude Code's auto-mode safety
+  checks at the fast model (`CLAUDE_CODE_AUTO_MODE_MODEL`) instead of the main
+  one. Each check sends about 30,000 input tokens, and on the main model the
+  checks cost 1.9 to 7 times the coding work in our tests. They also set
+  `CLAUDE_CODE_AUTO_MODE_SERVER=0`, so Claude Code runs the checks itself
+  rather than asking ai& for server-side checks it cannot provide; this keeps
+  auto mode working when Claude Code removes its fallback for them.
+- The README and the npm page link the CLI guide at
+  [docs.aiand.com/cli](https://docs.aiand.com/cli/), not the docs home page.
+- A source-build `npm ci` passes `--prefer-offline`, so a re-run reuses the
+  npm cache and still downloads anything the cache does not have.
+- `install.sh` reads the first `"version"` key in package.json without
+  spawning node, so a later `"version"` on the same line cannot win.
+- `install.ps1` runs the `aiand` launcher, and `aiand.cmd` only when
+  `OS` is `Windows_NT`, so the version check and the login offer work under
+  PowerShell on Linux.
+
 ### Fixed
 
 - `aiand copilot-app on` and `status` say when the GitHub account signed in
   to the app has no Copilot access, or no account is signed in. The app does
   not start a session without Copilot access, even when every request goes
   to ai&; Copilot Free is enough.
+
+- `--model <id>` now puts every model slot of Claude Code on that model:
+  Opus, Sonnet, Fable, subagent, and the fast `haiku` slot that session
+  titles and other background calls use. Before, `aiand claude on --model`
+  left the fast slot on `deepseek-ai/deepseek-v4.1-flash-1017`, and
+  `aiand claude --model <id>` (one session) left every slot but the startup
+  model on `moonshotai/kimi-k3`, so auto mode's safety checks went there.
+  A model set with `aiand config set model` counts as a choice too, and a
+  later `on` follows a new one. `aiand claude` sessions keep a model given
+  to `on --model`. `on` also writes `CLAUDE_CODE_AUTO_MODE_MODEL` (the
+  safety checks' model, Claude Code 2.1.302+) to the chosen model, so one
+  exported in the shell cannot send the checks elsewhere. A re-run of
+  `aiand claude on` moves a fast slot that 0.8.0 left behind.
+- `aiand claude --model <id>` and `aiand run-agent <agent> -- --model <id>`
+  run the session on that model. Before, Copilot, Pi, omp and Hermes dropped
+  a `--model` given after `--` and started on the default model, and Claude
+  Code got the flag while its other slots stayed on the default. A model ai&
+  does not serve is now refused instead of replaced.
+- `aiand <agent> --model <id>` on an agent that is not set up yet sets it up
+  on that model, not on the default, so a later plain launch stays on it.
+- OpenCode: `aiand opencode on` and one-session launches set `small_model`
+  to the chosen model, so titles and summaries stay on it instead of a model
+  OpenCode picks; `off` hands back a `small_model` of your own. A `--model`
+  or `-m` in `aiand opencode`'s arguments is no longer overridden.
+
+### Added
+
+- `--fast-model <id>` for `aiand claude on`, `aiand claude` and
+  `aiand run-agent claude`: a separate model for Claude Code's background
+  calls and auto mode's safety checks. Without it, they use `--model`.
+- `aiand claude status` lists every model Claude Code can send requests to
+  (each slot and the auto-mode safety checks) and warns about any slot that
+  holds a model other than the one you chose.
+
+- Both installers finish with an agent summary: which coding-agent binaries
+  are on `PATH`, the install hint for each one that is missing, and a nudge
+  to run `aiand init`. The hint is that adapter's own install command for
+  this machine (Jouzu included). The Copilot desktop app is left out; it is
+  not a PATH binary. The installer still never wires agents itself.
 
 ## [0.8.0] - 2026-11-20
 
