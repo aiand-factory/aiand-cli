@@ -41,7 +41,6 @@ breaking changes while the command surface settles.
 - `aiand claude status` lists every model Claude Code can send requests to
   (each slot and the auto-mode safety checks) and warns about any slot that
   holds a model other than the one you chose.
-### Added
 
 - Both installers finish with an agent summary: which coding-agent binaries
   are on `PATH`, the install hint for each one that is missing, and a nudge
