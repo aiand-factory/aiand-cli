@@ -6,7 +6,15 @@
 // kind of request the way Claude Code does, against a logging mock gateway,
 // and read back which models were asked for.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { delimiter, join } from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
 import {
