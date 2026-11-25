@@ -24,6 +24,8 @@ import {
 const loginCommand = await import("../dist/commands/login.js");
 const config = await import("../dist/config.js");
 const replace = await import("../dist/auth/replace.js");
+const authLogin = await import("../dist/auth/login.js");
+const client = await import("../dist/api/client.js");
 
 registerAuthStub();
 
@@ -346,7 +348,7 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
     assert.deepEqual(state.revocations, ["rt-old"]);
   });
 
-  test("asked after a failed revoke: yes replaces anyway, no keeps the old sign-in", async () => {
+  test("a failed revoke is reported to the caller, not decided where it happens", async () => {
     await seed({
       access_token: "sk-old",
       refresh_token: "rt-old",
@@ -358,28 +360,103 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
       "default",
       await config.loadCredential("default"),
     );
-    const incoming = { refreshToken: "rt-new", binding: stubBinding() };
-    const questions = [];
     const captured = captureOutput();
+    let result;
     try {
-      const yes = await replace.retireBeforeSave(replaced, incoming, {
-        ask: async (q) => {
-          questions.push(q);
-          return true;
-        },
+      result = await replace.retireBeforeSave(replaced, {
+        refreshToken: "rt-new",
+        binding: stubBinding(),
       });
-      assert.equal(yes.outcome, "failed");
-      assert.deepEqual(state.revocations, [], "yes keeps the new key");
-      await assert.rejects(
-        replace.retireBeforeSave(replaced, incoming, { ask: async () => false }),
-        /Kept the existing sign-in/,
-      );
     } finally {
       captured.restore();
     }
-    assert.equal(questions.length, 1);
-    assert.match(questions[0], /Replace the sign-in anyway/);
-    assert.deepEqual(state.revocations, ["rt-new"], "no revokes the new key");
+    assert.equal(result.outcome, "failed");
+    assert.match(result.failed.question, /Replace the sign-in anyway/);
+    assert.match(result.failed.keep.message, /Kept the existing sign-in/);
+    assert.deepEqual(state.revocations, [], "nothing revoked yet: the caller decides");
+  });
+
+  describe("replaceAndSave", () => {
+    const incoming = () => ({ refreshToken: "rt-new", binding: stubBinding() });
+    const keep = () => new Error("kept the old sign-in");
+
+    test("asks with the refresh lock released, and saves on yes", async () => {
+      let lockFreeWhileAsking = false;
+      const saved = await authLogin.replaceAndSave(
+        "default",
+        incoming(),
+        async () => ({
+          kind: "ask",
+          keep: keep(),
+          confirm: async () => {
+            lockFreeWhileAsking = await Promise.race([
+              client.withRefreshLock("default", async () => true),
+              new Promise((resolve) => setTimeout(() => resolve(false), 2000)),
+            ]);
+            return true;
+          },
+        }),
+        async () => "saved",
+      );
+      assert.equal(saved, "saved");
+      assert.equal(
+        lockFreeWhileAsking,
+        true,
+        "another process could take the lock during the question",
+      );
+      assert.deepEqual(state.revocations, []);
+    });
+
+    test("no to the question keeps the old sign-in and revokes the new key", async () => {
+      let saves = 0;
+      await assert.rejects(
+        authLogin.replaceAndSave(
+          "default",
+          incoming(),
+          async () => ({
+            kind: "ask",
+            keep: keep(),
+            confirm: async () => false,
+          }),
+          async () => saves++,
+        ),
+        /kept the old sign-in/,
+      );
+      assert.equal(saves, 0);
+      assert.deepEqual(state.revocations, ["rt-new"]);
+    });
+
+    test("keep revokes the new key without asking", async () => {
+      await assert.rejects(
+        authLogin.replaceAndSave(
+          "default",
+          incoming(),
+          async () => ({ kind: "keep", keep: keep() }),
+          async () => "x",
+        ),
+        /kept the old sign-in/,
+      );
+      assert.deepEqual(state.revocations, ["rt-new"]);
+    });
+
+    test("a save that fails after the old key was retired revokes the new key too", async () => {
+      await assert.rejects(
+        authLogin.replaceAndSave(
+          "default",
+          incoming(),
+          async () => ({ kind: "save" }),
+          async () => {
+            throw new Error("disk full");
+          },
+        ),
+        /disk full/,
+      );
+      assert.deepEqual(
+        state.revocations,
+        ["rt-new"],
+        "no key is left live without a local way to revoke it",
+      );
+    });
   });
 
   test("without --force and no terminal, an existing sign-in is refused untouched", async () => {

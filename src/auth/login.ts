@@ -5,6 +5,7 @@ import { assertValidKey, openSession, type Session, withRefreshLock } from "../a
 import {
   type DeviceCodeResponse,
   pollForToken,
+  revokeTokens,
   startDeviceAuthorization,
   type TokenResponse,
   verificationUrl,
@@ -72,8 +73,64 @@ async function rebakeAfterSignIn(
   printRebakeNotes(await rebakeForBinding(key, profile.name, binding));
 }
 
-/** Runs under the refresh lock just before the new sign-in is saved; throwing keeps the old one. */
-export type BeforeSave = (incoming: IncomingSignIn) => Promise<void>;
+/**
+ * Runs under the refresh lock just before the new sign-in is saved. `save`
+ * goes ahead; `ask` releases the lock, asks, and saves on yes; `keep` keeps the
+ * old sign-in. Throwing keeps it too.
+ */
+export type BeforeSave = (
+  incoming: IncomingSignIn,
+) => Promise<
+  | { kind: "save" }
+  | { kind: "ask"; confirm: () => Promise<boolean>; keep: Error }
+  | { kind: "keep"; keep: Error }
+>;
+
+/**
+ * Save a new sign-in, retiring the one it replaces first. The retire and the
+ * save share the refresh lock, so no rotation slips between them; a question
+ * is asked with the lock released, so other aiand processes are not held up by
+ * a prompt. The new key is revoked whenever it ends up unsaved (kept old
+ * sign-in, or a failed save), so no key is left live with no local way to
+ * revoke it.
+ */
+export async function replaceAndSave<T>(
+  profile: string,
+  incoming: IncomingSignIn,
+  beforeSave: BeforeSave | undefined,
+  save: () => Promise<T>,
+): Promise<T> {
+  const discardNew = async (): Promise<void> => {
+    if (incoming.refreshToken) {
+      await revokeTokens(incoming.binding.auth_url, incoming.refreshToken).catch(() => undefined);
+    }
+  };
+  const saveOrDiscard = async (): Promise<T> => {
+    try {
+      return await save();
+    } catch (error) {
+      await discardNew();
+      throw error;
+    }
+  };
+  type Ask = { kind: "ask"; confirm: () => Promise<boolean>; keep: Error };
+  type First = { saved: true; value: T } | { saved: false; ask: Ask };
+  const first: First = await withRefreshLock(profile, async (): Promise<First> => {
+    const step = beforeSave ? await beforeSave(incoming) : ({ kind: "save" } as const);
+    if (step.kind === "save") return { saved: true, value: await saveOrDiscard() };
+    if (step.kind === "keep") {
+      await discardNew();
+      throw step.keep;
+    }
+    return { saved: false, ask: step };
+  });
+  if (first.saved) return first.value;
+  if (!(await first.ask.confirm())) {
+    await discardNew();
+    throw first.ask.keep;
+  }
+  return withRefreshLock(profile, saveOrDiscard);
+}
 
 export type DeviceLoginOptions = {
   profile?: string;
@@ -250,19 +307,21 @@ async function completeSignIn(
   const [user, orgs] = await Promise.all([getUser(pending), listOrgs(pending)]);
   const org = tokens.org ?? orgs[0] ?? null;
 
-  // The old sign-in is retired and the new one saved under one lock, so nothing rotates between.
-  await withRefreshLock(profile.name, async () => {
-    await opts.beforeSave?.({ refreshToken: tokens.refresh_token, binding: bound_to });
-    await saveCredential(profile.name, {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: nowSeconds() + tokens.expires_in,
-      origin: CREDENTIAL_ORIGIN.DEVICE,
-      bound_to,
-      user,
-      ...(org ? { org } : {}),
-    });
-  });
+  await replaceAndSave(
+    profile.name,
+    { refreshToken: tokens.refresh_token, binding: bound_to },
+    opts.beforeSave,
+    () =>
+      saveCredential(profile.name, {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: nowSeconds() + tokens.expires_in,
+        origin: CREDENTIAL_ORIGIN.DEVICE,
+        bound_to,
+        user,
+        ...(org ? { org } : {}),
+      }),
+  );
 
   await activateProfile(profile.name, bound_to);
 
@@ -392,16 +451,15 @@ export async function pasteLogin(opts: PasteLoginOptions = {}): Promise<void> {
     credential: { access_token: key, origin: CREDENTIAL_ORIGIN.PASTE, bound_to },
   };
   const [org = null] = await listOrgs(pending);
-  const storage = await withRefreshLock(profile.name, async () => {
-    await opts.beforeSave?.({ binding: bound_to });
-    return saveCredential(profile.name, {
+  const storage = await replaceAndSave(profile.name, { binding: bound_to }, opts.beforeSave, () =>
+    saveCredential(profile.name, {
       access_token: key,
       origin: CREDENTIAL_ORIGIN.PASTE,
       bound_to,
       user,
       ...(org ? { org } : {}),
-    });
-  });
+    }),
+  );
 
   await activateProfile(profile.name, bound_to);
   await rebakeAfterSignIn(profile, key, bound_to);

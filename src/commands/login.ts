@@ -85,9 +85,12 @@ export async function run(argv: string[]): Promise<void> {
     ? async (incoming) => {
         const r = await retireBeforeSave(replaced, incoming, {
           keepRemote: bool(parsed, "keep-remote"),
-          ask: isInteractive() ? (question) => confirm(question, { default: false }) : undefined,
         });
         replacedKey = r.key;
+        if (!r.failed) return { kind: "save" };
+        const { question, keep } = r.failed;
+        if (!isInteractive()) return { kind: "keep", keep };
+        return { kind: "ask", confirm: () => confirm(question, { default: false }), keep };
       }
     : undefined;
 

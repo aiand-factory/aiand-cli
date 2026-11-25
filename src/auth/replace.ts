@@ -43,25 +43,23 @@ export type RetireResult = {
   outcome: RetireOutcome;
   /** The replaced key, for scrubbing its copies once the new sign-in is saved. */
   key?: string;
+  /** Set when the revoke failed: what to ask, and the error that keeps the old sign-in. */
+  failed?: { question: string; keep: CliError };
 };
 
-export type RetireOptions = {
-  keepRemote?: boolean;
-  /** Asks whether to replace the sign-in although its key could not be revoked. Absent off a terminal. */
-  ask?: (question: string) => Promise<boolean>;
-};
+export type RetireOptions = { keepRemote?: boolean };
 
 /**
  * Revoke the key the replaced sign-in minted. Runs under the profile's refresh
  * lock, after the new tokens arrive and before they are saved, so the old
- * refresh token is still on disk while it is spent: a revoke that fails leaves
- * both sign-ins in hand. Then it asks, or, off a terminal, revokes the new key
- * and throws, keeping the old sign-in. Everything goes to stderr, so `--json`
- * stdout stays one JSON document.
+ * refresh token is still on disk while it is spent. A failed revoke is reported
+ * in `failed`, never decided here: the caller asks outside the lock, or keeps
+ * the old sign-in. Everything goes to stderr, so `--json` stdout stays one JSON
+ * document.
  */
 export async function retireBeforeSave(
   replaced: ReplacedSignIn,
-  incoming: IncomingSignIn,
+  _incoming: IncomingSignIn,
   opts: RetireOptions = {},
 ): Promise<RetireResult> {
   const { profile, previous } = replaced;
@@ -117,18 +115,14 @@ export async function retireBeforeSave(
       `Could not revoke the key "${profile}" signed in with before, at ${safeLine(redactUrl(binding.auth_url))}: ${cause}.`,
     ),
   );
-  if (
-    opts.ask &&
-    (await opts.ask(
-      "Replace the sign-in anyway? Its old key stays valid until you revoke it in the console.",
-    ))
-  ) {
-    err(style.dim(stillValid));
-    return { outcome: "failed", key };
-  }
-  // The new key was minted for nothing: revoke it, so keeping the old sign-in leaves no stray key.
-  if (incoming.refreshToken) await revokeTokens(incoming.binding.auth_url, incoming.refreshToken);
-  throw new CliError(`Kept the existing sign-in for "${profile}".`, {
-    hint: `Try again later, or run \`aiand login --force --keep-remote\` to replace it and leave the old key valid, then revoke it at ${CONSOLE_KEYS_URL}.`,
-  });
+  return {
+    outcome: "failed",
+    key,
+    failed: {
+      question: `Replace the sign-in anyway? Its old key stays valid until you revoke it at ${CONSOLE_KEYS_URL}.`,
+      keep: new CliError(`Kept the existing sign-in for "${profile}".`, {
+        hint: `Try again later, or run \`aiand login --force --keep-remote\` to replace it and leave the old key valid, then revoke it at ${CONSOLE_KEYS_URL}.`,
+      }),
+    },
+  };
 }
