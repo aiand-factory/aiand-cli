@@ -267,10 +267,44 @@ describe("opencode adapter", () => {
     assert.equal(provider.options.baseURL, "https://api.aiand.com/v1");
     assert.deepEqual(Object.keys(provider.models).sort(), ["qwen/qwen3.8-27b", "zai-org/glm-5.3"]);
     assert.equal(config.model, "aiand/zai-org/glm-5.3");
+    assert.equal(config.small_model, "aiand/zai-org/glm-5.3");
     assert.equal(config.enabled_providers, undefined);
     assert.equal(config.disabled_providers, undefined);
     assert.equal(config["x-aiand"], undefined);
     assert.equal(ownershipStamp(config), true);
+  });
+
+  // Titles and summaries go to small_model; unset, OpenCode picks one itself.
+  test("enable(): small_model follows the model; off hands back the user's own", async () => {
+    mkdirSync(dirname(configPath()), { recursive: true });
+    writeFileSync(configPath(), JSON.stringify({ small_model: "anthropic/claude-haiku-4-5" }));
+    await withFetch(
+      async () => okApiJson(),
+      async () => {
+        await opencodeAdapter.enable(enableInput({ model: "qwen/qwen3.8-27b", pinModel: true }));
+        assert.equal(readConfigJson().small_model, "aiand/qwen/qwen3.8-27b");
+        // A re-on keeps the user's original as the one to hand back.
+        await opencodeAdapter.enable(enableInput({ model: "zai-org/glm-5.3", pinModel: true }));
+      },
+    );
+    assert.equal(readConfigJson().small_model, "aiand/zai-org/glm-5.3");
+    await opencodeAdapter.disable();
+    assert.equal(readConfigJson().small_model, "anthropic/claude-haiku-4-5");
+  });
+
+  test("disable(): a small_model edited since on is left, with a note", async () => {
+    await withFetch(
+      async () => okApiJson(),
+      async () => {
+        await opencodeAdapter.enable(enableInput());
+      },
+    );
+    const config = readConfigJson();
+    config.small_model = "aiand/qwen/qwen3.8-27b";
+    writeFileSync(configPath(), JSON.stringify(config));
+    const result = await opencodeAdapter.disable();
+    assert.equal(readConfigJson().small_model, "aiand/qwen/qwen3.8-27b");
+    assert.match(result.notes.join(" "), /left small_model because you edited it/);
   });
 
   test("enable(): refuses an opencode.json stowed into a dotfiles repo", async () => {

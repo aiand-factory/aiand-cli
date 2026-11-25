@@ -81,10 +81,10 @@ Claude Code で ai& を使う方法は 2 つあります。1 回のセッショ�
 ```bash
 aiand claude                              # Claude Code のセッションを 1 つ ai& で開く
 aiand claude -p "explain this repo"       # Claude Code に引数を渡す
-aiand run-agent claude --model <id>       # このセッションで使う ai& のモデルを選ぶ
+aiand claude --model <id>                 # このセッションで使う ai& のモデルを選ぶ
 ```
 
-`aiand claude` は Claude Code のセッションを 1 つ ai& で起動し、Claude Code の設定には何も書き込みません。ほかのターミナルで開いた通常の `claude` のセッションは、その前も最中もあとも、Anthropic のモデルを使い続けます。`claude` のあとに続く引数は、そのまま Claude Code に渡されます。モデルを選ぶには `aiand run-agent claude --model <id>` を使います。モデルの一覧は `aiand models` で確認できます。
+`aiand claude` は Claude Code のセッションを 1 つ ai& で起動し、Claude Code の設定には何も書き込みません。ほかのターミナルで開いた通常の `claude` のセッションは、その前も最中もあとも、Anthropic のモデルを使い続けます。`claude` のあとに続く引数は、そのまま Claude Code に渡されます。ただし `--model <id>` は、このセッションのすべてのモデルのスロットで使う ai& のモデルを選びます。モデルの一覧は `aiand models` で確認できます。
 
 `/model` で ai& のモデルを選んで既定として保存した場合、Claude Code が保存した直後に、aiand が元の既定のモデルに戻します。そのため、ai& のセッションがまだ開いているあいだに起動した通常の `claude` でも、使えるモデルで起動します。`aiand claude on` が有効なあいだは、すべての `claude` が ai& で動くため、ai& の既定のモデルはそのまま残ります。
 
@@ -343,6 +343,18 @@ aiand config path                                # ファイルの場所
 | `NO_COLOR` | 色を無効にする |
 
 インストーラーには専用の変数(`AIAND_VERSION`、`AIAND_DIR`、`AIAND_NO_MODIFY_PATH`)があります。`install.sh` と `install.ps1` の冒頭を参照してください。
+
+## 企業プロキシの内側で使う
+
+`HTTPS_PROXY` または `HTTP_PROXY` のいずれかが設定されている場合、CLI はそのプロキシ経由でリクエストを送信します。`NO_PROXY` の設定も尊重します。
+
+CLI は、オペレーティングシステムの証明書ストアにインストールされている証明書を信頼します。そのため、企業の証明書で HTTPS を検査するプロキシも、その証明書が証明書ストアにインストールされていれば利用できます。
+
+企業の証明書がシステムの証明書ストアにない場合は、その証明書を含む PEM ファイルを `NODE_EXTRA_CA_CERTS` に設定してください。
+
+CLI が起動するコーディングエージェントも、同じ変数をそれぞれ読み取ります。
+
+Node 22.21 以降が必要です。
 
 ## トラブルシューティング
 

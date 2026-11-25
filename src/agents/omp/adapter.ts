@@ -571,6 +571,7 @@ export const ompAdapter: AgentAdapter = {
   bin: OMP_BIN,
   aliases: ["oh-my-pi"],
   install: OMP_INSTALL,
+  launchModelFlags: ["--model"],
   // The launcher routes through a throwaway overlay dir (a
   // generated models.yml + config.yml), so these inherited
   // names would shadow or bypass that file routing. Literal

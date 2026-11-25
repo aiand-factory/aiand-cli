@@ -7,18 +7,35 @@ breaking changes while the command surface settles.
 
 ## [Unreleased]
 
-### Added
-
-- `aiand login --keep-remote` replaces a sign-in and leaves the key the old
-  one created valid on the server.
-- Both installers finish with an agent summary: which coding-agent binaries
-  are on `PATH`, the install hint for each one that is missing, and a nudge
-  to run `aiand init`. The hint is that adapter's own install command for
-  this machine (Jouzu included). The Copilot desktop app is left out; it is
-  not a PATH binary. The installer still never wires agents itself.
-
 ### Fixed
 
+- `--model <id>` now puts every model slot of Claude Code on that model:
+  Opus, Sonnet, Fable, subagent, and the fast `haiku` slot that session
+  titles and other background calls use. Before, `aiand claude on --model`
+  left the fast slot on `deepseek-ai/deepseek-v4.1-flash-1017`, and
+  `aiand claude --model <id>` (one session) left every slot but the startup
+  model on `moonshotai/kimi-k3`, so auto mode's safety checks went there.
+  A model set with `aiand config set model` counts as a choice too, and a
+  later `on` follows a new one. `aiand claude` sessions keep a model given
+  to `on --model`. `on` also writes `CLAUDE_CODE_AUTO_MODE_MODEL` (the
+  safety checks' model, Claude Code 2.1.302+) to the chosen model, so one
+  exported in the shell cannot send the checks elsewhere. A re-run of
+  `aiand claude on` moves a fast slot that 0.8.0 left behind.
+- `aiand claude --model <id>` and `aiand run-agent <agent> -- --model <id>`
+  run the session on that model. Before, Copilot, Pi, omp and Hermes dropped
+  a `--model` given after `--` and started on the default model, and Claude
+  Code got the flag while its other slots stayed on the default. A model ai&
+  does not serve is now refused instead of replaced.
+- `aiand <agent> --model <id>` on an agent that is not set up yet sets it up
+  on that model, not on the default, so a later plain launch stays on it.
+- OpenCode: `aiand opencode on` and one-session launches set `small_model`
+  to the chosen model, so titles and summaries stay on it instead of a model
+  OpenCode picks; `off` hands back a `small_model` of your own. A `--model`
+  or `-m` in `aiand opencode`'s arguments is no longer overridden.
+
+
+- The CLI now sends its requests through `HTTPS_PROXY`/`HTTP_PROXY` and trusts
+  the system certificate store. It requires Node 22.21 or later.
 - Signing in again revokes the key the old sign-in created. `aiand login
   --force`, or yes to "Sign in again and replace it?", used to leave that key
   valid with nothing on the machine able to revoke it. The revoke goes to
@@ -27,6 +44,23 @@ breaking changes while the command surface settles.
   asks whether to replace the sign-in anyway, and without one the old
   sign-in is kept and the new key revoked. A failed or cancelled sign-in
   keeps the old one. A pasted key is never revoked.
+
+### Added
+
+- `aiand login --keep-remote` replaces a sign-in and leaves the key the old
+  one created valid on the server.
+- `--fast-model <id>` for `aiand claude on`, `aiand claude` and
+  `aiand run-agent claude`: a separate model for Claude Code's background
+  calls and auto mode's safety checks. Without it, they use `--model`.
+- `aiand claude status` lists every model Claude Code can send requests to
+  (each slot and the auto-mode safety checks) and warns about any slot that
+  holds a model other than the one you chose.
+
+- Both installers finish with an agent summary: which coding-agent binaries
+  are on `PATH`, the install hint for each one that is missing, and a nudge
+  to run `aiand init`. The hint is that adapter's own install command for
+  this machine (Jouzu included). The Copilot desktop app is left out; it is
+  not a PATH binary. The installer still never wires agents itself.
 
 ### Changed
 

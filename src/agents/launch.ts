@@ -7,6 +7,40 @@ import { resolveWindowsCommand } from "../cli/win-spawn.js";
 import { findOnPath } from "./detect.js";
 import type { AgentAdapter } from "./types.js";
 
+/**
+ * Take the values of `flags` out of an agent's args, in both `--flag value`
+ * and `--flag=value` forms, the way run-agent strips owned flags: a value is
+ * only taken when it is not itself a flag. `keep` leaves a value (and its
+ * flag) in the args.
+ */
+export function takeFlagValues(
+  args: readonly string[],
+  flags: readonly string[],
+  keep: (value: string) => boolean = () => false,
+): { values: string[]; rest: string[] } {
+  const values: string[] = [];
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i]!;
+    const next = args[i + 1];
+    if (flags.includes(token) && next !== undefined && !next.startsWith("-")) {
+      if (keep(next)) rest.push(token, next);
+      else values.push(next);
+      i += 1;
+      continue;
+    }
+    const flag = flags.find((name) => token.startsWith(`${name}=`));
+    const value = flag === undefined ? undefined : token.slice(flag.length + 1);
+    if (value) {
+      if (keep(value)) rest.push(token);
+      else values.push(value);
+      continue;
+    }
+    rest.push(token);
+  }
+  return { values, rest };
+}
+
 export function notInstalledError(adapter: AgentAdapter): CliError {
   return new CliError(`${adapter.label} is not installed.`, {
     exitCode: EXIT.NOT_FOUND,

@@ -33,6 +33,7 @@ export const piAdapter: AgentAdapter = {
   label: "Pi",
   bin: PI_BIN,
   install: PI_INSTALL,
+  launchModelFlags: ["--model"],
   // No shadowEnv: the only PI_* names Pi consults are
   // PI_CODING_AGENT_DIR — which sessionLaunch sets, so the
   // overlay always wins over an inherited value — and

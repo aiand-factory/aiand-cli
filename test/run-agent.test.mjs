@@ -258,7 +258,7 @@ describe("run-agent launcher", () => {
           "evil",
           "--provider=openai",
           "--model",
-          "gpt-4o",
+          "aiand/other",
           "--models",
           "a,b",
           "--print",
@@ -270,11 +270,15 @@ describe("run-agent launcher", () => {
       const args = readFileSync(join(capture, "capture.args"), "utf8").trim().split("\n");
       assert.equal(args[0], "--provider");
       assert.equal(args[1], "aiand");
-      assert.equal(args[2], "--model");
-      assert.ok(args[3] !== "gpt-4o", "the user's --model is stripped");
+      // Pi's own --model is the session's model, never dropped for our default.
+      assert.deepEqual(args.slice(2, 4), ["--model", "aiand/other"]);
+      assert.equal(
+        args.filter((arg) => arg === "--model").length,
+        1,
+        "the user's flag is not repeated",
+      );
       assert.ok(!args.includes("evil"), "the user's --api-key value is stripped");
       assert.ok(!args.includes("--provider=openai"), "--flag= form stripped");
-      assert.ok(!args.includes("gpt-4o"), "the user's --model value is stripped");
       assert.ok(!args.includes("a,b"), "the user's --models value is stripped");
       assert.equal(args.at(-1), "--print", "unrelated flags pass verbatim");
     } finally {
@@ -366,8 +370,7 @@ describe("run-agent launcher", () => {
           "--api-key",
           "evil",
           "--provider=openai",
-          "--model",
-          "gpt-4o",
+          "--model=aiand/other",
           "--models",
           "a,b",
           "--print",
@@ -377,11 +380,11 @@ describe("run-agent launcher", () => {
       );
       assert.equal(code, 42);
       const args = readFileSync(join(capture, "capture.args"), "utf8").trim().split("\n");
-      assert.equal(args[0], "--model");
-      assert.ok(args[1].startsWith("aiand/"), "our selector comes first");
+      // omp's own --model is the session's model, in our selector form.
+      assert.deepEqual(args.slice(0, 2), ["--model", "aiand/aiand/other"]);
+      assert.ok(!args.includes("--model=aiand/other"), "the user's flag is not repeated");
       assert.ok(!args.includes("evil"), "the user's --api-key value is stripped");
       assert.ok(!args.includes("--provider=openai"), "--flag= form stripped");
-      assert.ok(!args.includes("gpt-4o"), "the user's --model value is stripped");
       assert.ok(!args.includes("a,b"), "the user's --models value is stripped");
       assert.equal(args.at(-1), "--print", "unrelated flags pass verbatim");
     } finally {
@@ -475,18 +478,71 @@ exit 42`,
     }
   });
 
-  test("copilot: the user's --model cannot override the injected routing", async () => {
+  // The agent's own --model picks the session's model; it is never
+  // dropped in favour of our default.
+  test("copilot: the user's --model is the session's model, through the injected routing", async () => {
     plantCaptureStub("copilot");
     const capture = captureDir();
     try {
       const { code } = await stubCli(
-        ["copilot", "--", "--model", "gpt-4o", "--model=x", "--version"],
+        ["copilot", "--", "--model", "aiand/other", "--version"],
         {},
         capture,
       );
       assert.equal(code, 42);
       const args = readFileSync(join(capture, "capture.args"), "utf8").trim().split("\n");
       assert.deepEqual(args, ["--no-auto-update", "--version"]);
+      const envText = readFileSync(join(capture, "capture.env"), "utf8");
+      assert.match(envText, /^COPILOT_MODEL=aiand\/aiand\/other$/m);
+    } finally {
+      rmSync(capture, { recursive: true, force: true });
+    }
+  });
+
+  test("a passed-through --model ai& does not serve is refused, never swapped for a default", async () => {
+    plantCaptureStub("copilot");
+    const capture = captureDir();
+    try {
+      const { code, stderr } = await stubCli(
+        ["copilot", "--", "--model", "gpt-4o", "--version"],
+        {},
+        capture,
+      );
+      assert.notEqual(code, 42);
+      assert.match(stderr, /--model "gpt-4o" is not in the catalog/);
+      assert.equal(existsSync(join(capture, "capture.args")), false, "nothing launched");
+    } finally {
+      rmSync(capture, { recursive: true, force: true });
+    }
+  });
+
+  test("two different --model values are refused", async () => {
+    plantCaptureStub("copilot");
+    const capture = captureDir();
+    try {
+      const { code, stderr } = await stubCli(
+        ["copilot", "--model", "aiand/glm-5.3", "--", "--model=aiand/other"],
+        {},
+        capture,
+      );
+      assert.notEqual(code, 42);
+      assert.match(stderr, /--model was given twice: aiand\/glm-5\.3 and aiand\/other/);
+    } finally {
+      rmSync(capture, { recursive: true, force: true });
+    }
+  });
+
+  test("--fast-model is refused for an agent with no fast model", async () => {
+    plantCaptureStub("copilot");
+    const capture = captureDir();
+    try {
+      const { code, stderr } = await stubCli(
+        ["copilot", "--fast-model", "aiand/other"],
+        {},
+        capture,
+      );
+      assert.notEqual(code, 42);
+      assert.match(stderr, /GitHub Copilot has no separate fast model/);
     } finally {
       rmSync(capture, { recursive: true, force: true });
     }
@@ -1082,9 +1138,9 @@ exit 42`,
           "--",
           "--provider",
           "x",
-          "--model=y",
+          "--model=aiand/glm-5.3",
           "-m",
-          "z",
+          "aiand/glm-5.3",
           "--keep",
         ],
         // Inherited ANTHROPIC_* must not reach the hermes child: they
