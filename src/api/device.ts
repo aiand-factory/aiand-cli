@@ -23,6 +23,49 @@ export type TokenResponse = {
   org?: { id: string; name: string };
 };
 
+function incompleteTokenResponse(): CliError {
+  return new CliError("The sign-in service returned an incomplete token response.", {
+    hint: "Run `aiand login` again.",
+  });
+}
+
+export function validTokenResponse(body: unknown): TokenResponse {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    throw incompleteTokenResponse();
+  }
+  const candidate = body as Record<string, unknown>;
+  const { access_token, refresh_token, expires_in, token_type } = candidate;
+  if (
+    typeof access_token !== "string" ||
+    access_token.length === 0 ||
+    typeof refresh_token !== "string" ||
+    refresh_token.length === 0 ||
+    typeof expires_in !== "number" ||
+    !Number.isFinite(expires_in) ||
+    expires_in <= 0 ||
+    typeof token_type !== "string"
+  ) {
+    throw incompleteTokenResponse();
+  }
+
+  if ("org" in candidate) {
+    const org = candidate.org;
+    const fields =
+      org !== null && typeof org === "object" ? (org as Record<string, unknown>) : null;
+    if (
+      fields === null ||
+      Array.isArray(fields) ||
+      typeof fields.id !== "string" ||
+      typeof fields.name !== "string"
+    ) {
+      const result = { ...candidate };
+      delete result.org;
+      return result as TokenResponse;
+    }
+  }
+  return body as TokenResponse;
+}
+
 type TokenErrorBody = { error: string; error_description?: string };
 
 function devicePost(url: string, body: unknown, signal?: AbortSignal): Promise<Response> {
@@ -109,7 +152,7 @@ export async function pollForToken(
       device_code: device.device_code,
     });
 
-    if (response.ok) return parseJsonResponse<TokenResponse>(response);
+    if (response.ok) return validTokenResponse(await parseJsonResponse<unknown>(response));
 
     let body: Partial<TokenErrorBody> = {};
     try {
@@ -162,7 +205,18 @@ export async function rotateTokens(
       hint: "Run `aiand login` to sign in again.",
     });
   }
-  return parseJsonResponse<TokenResponse>(response);
+  const body = await parseJsonResponse<unknown>(response);
+  try {
+    return validTokenResponse(body);
+  } catch (error) {
+    if (error instanceof CliError) {
+      throw new CliError(error.message, {
+        exitCode: EXIT.NOT_SIGNED_IN,
+        hint: error.hint,
+      });
+    }
+    throw error;
+  }
 }
 
 /**
