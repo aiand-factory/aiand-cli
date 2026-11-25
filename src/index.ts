@@ -7,7 +7,7 @@ import { findAgent } from "./agents/registry.js";
 import { VERSION } from "./api/client.js";
 import { ApiError, CliError, EXIT } from "./cli/errors.js";
 import { err, out, safeLine, sanitizeForTerminal, style } from "./cli/output.js";
-import { proxyUnsupportedWarning, relaunchPlan } from "./cli/proxy.js";
+import { forwardsInterrupt, proxyUnsupportedWarning, relaunchPlan } from "./cli/proxy.js";
 import { redactSecrets } from "./cli/redact.js";
 import { protectProcessEnv } from "./cli/spawn-env.js";
 import { printBanner } from "./cli/ui/banner.js";
@@ -241,8 +241,14 @@ if (isMain()) {
   });
   if (plan) {
     const child = spawn(plan.cmd, plan.args, { env: plan.env, stdio: "inherit" });
-    process.on("SIGINT", () => child.kill("SIGINT"));
+    process.on("SIGINT", () => {
+      if (forwardsInterrupt(Boolean(process.stdin.isTTY))) child.kill("SIGINT");
+    });
     process.on("SIGTERM", () => child.kill("SIGTERM"));
+    child.on("error", (error) => {
+      err(style.red(`Could not restart aiand to use the proxy: ${safeLine(error.message)}`));
+      process.exitCode = EXIT.BUG;
+    });
     child.on("exit", (code, signal) => {
       process.exitCode = signal ? 128 + (os.constants.signals[signal] ?? 0) : (code ?? 0);
     });
