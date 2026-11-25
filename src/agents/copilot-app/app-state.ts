@@ -40,21 +40,37 @@ export function setSelectedModelSql(value: string): string {
 const COPILOT_FREE_URL = "https://github.com/settings/copilot";
 
 /**
- * Whether the GitHub account the app is signed in to can start a session.
+ * Whether the GitHub accounts signed in to the app can start a session.
  * The app needs Copilot access (Copilot Free or a seat) even when every
  * request goes to a BYOK provider such as ai&: without it, it stops at a
  * subscription screen and refuses to start sessions. The app caches
  * `/copilot_internal/user`'s `copilot_app_enabled` per account as
  * `copilotAppEnabled` in accounts.settings_json, refreshed when it runs.
- * Only login and settings_json are read; never the token columns.
+ * It can hold several accounts and picks one per project, so every
+ * account counts, not just the default. Only login and settings_json are
+ * read; never the token columns.
  */
 type CopilotAccess =
   | { state: "enabled" }
-  | { state: "none"; login: string }
+  | { state: "none"; logins: string[] }
+  | { state: "partial"; logins: string[] }
   | { state: "signed-out" }
   | { state: "unknown" };
 
-const ACCOUNT_COLUMNS = ["login", "is_default", "kind", "settings_json"];
+const ACCOUNT_COLUMNS = ["login", "kind", "settings_json"];
+/** The account kinds the app signs in with (github.com and GitHub Enterprise Server). */
+const ACCOUNT_KINDS = "('github', 'github_enterprise_server')";
+
+/** One account's cached access: true, false, or undefined when it cannot tell. */
+function accountAccess(settingsJson: unknown): boolean | undefined {
+  try {
+    const value = (JSON.parse(String(settingsJson ?? "{}")) as Record<string, unknown>)
+      .copilotAppEnabled;
+    return typeof value === "boolean" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function copilotAccess(dbPath: string): Promise<CopilotAccess> {
   try {
@@ -66,18 +82,20 @@ export async function copilotAccess(dbPath: string): Promise<CopilotAccess> {
     if (!ACCOUNT_COLUMNS.every((name) => names.has(name))) return { state: "unknown" };
     const accounts = await queryCopilotSql(
       dbPath,
-      "SELECT login, is_default, settings_json FROM accounts WHERE kind = 'github';",
+      `SELECT login, settings_json FROM accounts WHERE kind IN ${ACCOUNT_KINDS} ORDER BY rowid;`,
     );
     if (accounts.length === 0) return { state: "signed-out" };
-    const account =
-      accounts.find((row) => Number(row.is_default) === 1) ??
-      (accounts.length === 1 ? accounts[0] : undefined);
-    if (!account) return { state: "unknown" };
-    const settings = JSON.parse(String(account.settings_json ?? "{}")) as Record<string, unknown>;
-    if (settings.copilotAppEnabled === true) return { state: "enabled" };
-    if (settings.copilotAppEnabled === false)
-      return { state: "none", login: String(account.login) };
-    return { state: "unknown" };
+    const access = accounts.map((row) => ({
+      login: String(row.login),
+      enabled: accountAccess(row.settings_json),
+    }));
+    const without = access.filter((a) => a.enabled === false).map((a) => a.login);
+    if (without.length === 0) {
+      return access.some((a) => a.enabled === true) ? { state: "enabled" } : { state: "unknown" };
+    }
+    return without.length === access.length
+      ? { state: "none", logins: without }
+      : { state: "partial", logins: without };
   } catch {
     // Access is advice, never a reason for on or status to fail.
     return { state: "unknown" };
@@ -85,6 +103,8 @@ export async function copilotAccess(dbPath: string): Promise<CopilotAccess> {
 }
 
 const GET_ACCESS = `Turn on Copilot Free (${COPILOT_FREE_URL}) or get a Copilot seat, then reopen the app.`;
+const PER_PROJECT =
+  "The app picks an account for each project, and a project that uses one of them will not start a session, even on ai&.";
 
 /** What `on` says about Copilot access; always something unless access is confirmed. */
 export function accessWarningOnEnable(access: CopilotAccess): string | undefined {
@@ -92,7 +112,11 @@ export function accessWarningOnEnable(access: CopilotAccess): string | undefined
     case "enabled":
       return undefined;
     case "none":
-      return `The GitHub account signed in to the app (${access.login}) has no Copilot access, so the app will not start a session, even on ai&. ${GET_ACCESS}`;
+      return access.logins.length === 1
+        ? `The GitHub account signed in to the app (${access.logins[0]}) has no Copilot access, so the app will not start a session, even on ai&. ${GET_ACCESS}`
+        : `None of the GitHub accounts signed in to the app (${access.logins.join(", ")}) has Copilot access, so the app will not start a session, even on ai&. ${GET_ACCESS}`;
+    case "partial":
+      return `Some GitHub accounts signed in to the app (${access.logins.join(", ")}) have no Copilot access. ${PER_PROJECT} ${GET_ACCESS}`;
     case "signed-out":
       return "Sign in to the app with a GitHub account that has Copilot access; Copilot Free is enough. The app will not start a session without it, even on ai&.";
     case "unknown":
@@ -102,29 +126,47 @@ export function accessWarningOnEnable(access: CopilotAccess): string | undefined
 
 /** What `status` says: only a known problem, never the general reminder. */
 export function accessWarningOnStatus(access: CopilotAccess): string | undefined {
-  if (access.state === "none") {
-    return `When the app last checked, its GitHub account (${access.login}) had no Copilot access, so it will not start a session, even on ai&. ${GET_ACCESS}`;
+  switch (access.state) {
+    case "none":
+      return access.logins.length === 1
+        ? `When the app last checked, its GitHub account (${access.logins[0]}) had no Copilot access, so it will not start a session, even on ai&. ${GET_ACCESS}`
+        : `When the app last checked, none of its GitHub accounts (${access.logins.join(", ")}) had Copilot access, so it will not start a session, even on ai&. ${GET_ACCESS}`;
+    case "partial":
+      return `When the app last checked, some of its GitHub accounts (${access.logins.join(", ")}) had no Copilot access. ${PER_PROJECT} ${GET_ACCESS}`;
+    case "signed-out":
+      return "No GitHub account is signed in to the app. It needs one with Copilot access to start a session, even on ai&; Copilot Free is enough.";
+    default:
+      return undefined;
   }
-  if (access.state === "signed-out") {
-    return "No GitHub account is signed in to the app. It needs one with Copilot access to start a session, even on ai&; Copilot Free is enough.";
-  }
-  return undefined;
 }
 
 /**
  * The app_state change that hands the selected model back: only while it
- * still names one of the rows being removed (a pick the user made since is
- * theirs). The pick `on` replaced comes back; with none recorded, the key
- * goes and the app falls back to its own default.
+ * still names one of our rows (`ids`, which may already be gone from the
+ * app). The pick `on` replaced comes back; with none recorded, the key goes
+ * and the app falls back to its own default. A pick the user made since is
+ * theirs: it stays, and the note says so.
  */
-export async function restoreSelectionSql(
+export async function restoreSelection(
   dbPath: string,
   ids: string[],
   previous: string | null | undefined,
-): Promise<string[]> {
-  if (!(await hasAppState(dbPath))) return [];
+): Promise<{ sql: string[]; note?: string }> {
+  if (!(await hasAppState(dbPath))) return { sql: [] };
   const current = await readSelectedModel(dbPath);
-  if (!ids.some((id) => selectionModel(current, id) !== null)) return [];
-  if (typeof previous === "string") return [setSelectedModelSql(previous)];
-  return [`DELETE FROM app_state WHERE key = ${sqlString(SELECTED_MODEL_KEY)};`];
+  if (ids.some((id) => selectionModel(current, id) !== null)) {
+    return {
+      sql: [
+        typeof previous === "string"
+          ? setSelectedModelSql(previous)
+          : `DELETE FROM app_state WHERE key = ${sqlString(SELECTED_MODEL_KEY)};`,
+      ],
+    };
+  }
+  // Only a selection `on` wrote (a recorded previous) can have been changed since.
+  if (previous === undefined || current === null || current === previous) return { sql: [] };
+  return {
+    sql: [],
+    note: `left the app's selected model (${current}) because you picked it after aiand copilot-app on`,
+  };
 }

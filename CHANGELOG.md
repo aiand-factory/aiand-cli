@@ -11,10 +11,9 @@ breaking changes while the command surface settles.
 
 - `aiand copilot-app on` makes the ai& model the one new GitHub Copilot app
   sessions start on, instead of Copilot Fusion (GitHub's own model). `off`
-  puts back the model the app had selected before, and `status` shows the
-  model new sessions start on.
-
-
+  puts back the model the app had selected before `on`, or leaves a model
+  you picked since and says so, and `status` shows the model new sessions
+  start on.
 - The CLI now sends its requests through `HTTPS_PROXY`/`HTTP_PROXY` and trusts
   the system certificate store. It requires Node 22.21 or later.
 - Signing in again revokes the key the old sign-in created. `aiand login
@@ -42,11 +41,12 @@ breaking changes while the command surface settles.
 
 ### Fixed
 
-- `aiand copilot-app on` and `status` say when the GitHub account signed in
-  to the app has no Copilot access, or no account is signed in. The app does
-  not start a session without Copilot access, even when every request goes
-  to ai&; Copilot Free is enough.
-
+- `aiand copilot-app on` and `status` say when no GitHub account is signed
+  in to the app, or when an account has no Copilot access (GitHub Enterprise
+  Server accounts included). The app does not start a session without
+  Copilot access, even when every request goes to ai&; Copilot Free is
+  enough. The app picks an account for each project, so when only some
+  accounts lack access, the message names them.
 - `--model <id>` now puts every model slot of Claude Code on that model:
   Opus, Sonnet, Fable, subagent, and the fast `haiku` slot that session
   titles and other background calls use. Before, `aiand claude on --model`

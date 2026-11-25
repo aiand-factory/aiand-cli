@@ -22,7 +22,7 @@ import {
   copilotAccess,
   hasAppState,
   readSelectedModel,
-  restoreSelectionSql,
+  restoreSelection,
   selectionFor,
   selectionModel,
   setSelectedModelSql,
@@ -375,7 +375,7 @@ async function enable(input: EnableInput): Promise<EnableResult> {
   // after the write succeeded.
   const record = await getAddedState<CopilotAppRecord>(COPILOT_APP_ID);
   const selectModel = input.model !== "native";
-  let previousSelectedModel: string | null | undefined = record?.previousSelectedModel;
+  let previousSelectedModel = record?.previousSelectedModel;
   let selectionWritten = false;
   const providerId = await guardSchema(async () => {
     // Reuse an existing aiand- provider id: stored app sessions resolve
@@ -398,10 +398,14 @@ async function enable(input: EnableInput): Promise<EnableResult> {
     // keeping the pick it replaces for off. An app too old to keep one
     // (no app_state) gets the advice below instead.
     if (selectModel && (await hasAppState(dbPath))) {
-      if (previousSelectedModel === undefined) {
-        const current = await readSelectedModel(dbPath);
-        // A selection of this row with no record is ours from a lost record.
-        previousSelectedModel = selectionModel(current, providerId) === null ? current : null;
+      // Re-read on every on: a pick the user made since the last on is the
+      // one off hands back. A selection already ours keeps the recorded
+      // pick, but only when the record names this very row: a record from
+      // another database (COPILOT_HOME moved) or a lost one has none to give.
+      const current = await readSelectedModel(dbPath);
+      if (selectionModel(current, providerId) === null) previousSelectedModel = current;
+      else if (existing?.id !== record?.providerId || previousSelectedModel === undefined) {
+        previousSelectedModel = null;
       }
       statements.push(setSelectedModelSql(selectionFor(providerId, input.model)));
       selectionWritten = true;
@@ -465,7 +469,6 @@ async function disable(): Promise<DisableResult> {
       dbPath,
       `SELECT id, name, settings_json FROM model_providers WHERE id LIKE '${COPILOT_APP_PROVIDER_PREFIX}%';`,
     );
-    if (prefixRows.length === 0) return { stripped: false };
     const added = await getAddedState<CopilotAppRecord>(COPILOT_APP_ID);
     const recordedId = added?.providerId;
     // The `aiand-` prefix is a naming convention, not a proof: a row is
@@ -480,26 +483,34 @@ async function disable(): Promise<DisableResult> {
           row.name === COPILOT_APP_PROVIDER_NAME &&
           rowShapeMatchesOurs(row)),
     );
-    if (ours.length === 0) return { stripped: false };
     // Two unclaimed rows of our exact shape are ambiguous — no record
     // names one, so none is deleted, resolving ambiguity in the user's
     // favour.
     if (recordedId === undefined && ours.length > 1) return { stripped: false };
     const ids = ours.map((row) => String(row.id));
-    const selectionSql = await restoreSelectionSql(dbPath, ids, added?.previousSelectedModel);
+    // The recorded row counts for the selection even when the app already
+    // removed it: the selection would still name it, and the record is
+    // about to go, so this is the last chance to hand the pick back.
+    const selection = await restoreSelection(
+      dbPath,
+      recordedId !== undefined && !ids.includes(recordedId) ? [...ids, recordedId] : ids,
+      added?.previousSelectedModel,
+    );
+    const notes = selection.note ? { notes: [selection.note] } : {};
+    if (ids.length === 0 && selection.sql.length === 0) return { stripped: false, ...notes };
     // Both DELETEs run explicitly: rely on the FK cascade for nothing, and
     // a provider_models table without matching rows stays clean either way.
     // Id equality, never the prefix pattern: a foreign `aiand-` row must
     // not be caught.
     await execCopilotSql(dbPath, [
-      ...selectionSql,
+      ...selection.sql,
       ...ids.map((id) => `DELETE FROM provider_models WHERE provider_id = ${sqlString(id)};`),
       ...ids.map((id) => `DELETE FROM model_providers WHERE id = ${sqlString(id)};`),
     ]);
     // A DELETE leaves the row's bytes readable in freed pages — the session
     // key baked into settings_json must not stay recoverable in the file.
-    await vacuumCopilotSql(dbPath);
-    return { stripped: true };
+    if (ids.length > 0) await vacuumCopilotSql(dbPath);
+    return { stripped: true, ...notes };
   });
   await clearAddedState(COPILOT_APP_ID);
   return result;

@@ -577,7 +577,7 @@ describe("copilot-app default model and Copilot access", () => {
   const selected = () => rows(`SELECT value FROM app_state WHERE key = '${SELECTED}'`)[0]?.value;
 
   /** The live app's (1.4.x) app_state and accounts columns, on top of createAppDb(). */
-  function addLiveAppTables({ selection, account } = {}) {
+  function addLiveAppTables({ selection, account, accounts, tokenTrap = false } = {}) {
     const db = new DatabaseSync(dbPath());
     db.exec(`
       CREATE TABLE app_state (
@@ -588,19 +588,41 @@ describe("copilot-app default model and Copilot access", () => {
       ALTER TABLE accounts ADD COLUMN login TEXT NOT NULL DEFAULT '';
       ALTER TABLE accounts ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE accounts ADD COLUMN kind TEXT NOT NULL DEFAULT 'github';
-      ALTER TABLE accounts ADD COLUMN access_token TEXT;
       ALTER TABLE accounts ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';
     `);
+    if (!tokenTrap) db.exec("ALTER TABLE accounts ADD COLUMN access_token TEXT;");
     if (selection !== undefined) {
       db.prepare("INSERT INTO app_state (key, value) VALUES (?, ?)").run(SELECTED, selection);
     }
-    if (account) {
+    const all = account ? [{ ...account, isDefault: true }] : (accounts ?? []);
+    all.forEach((a, i) => {
       db.prepare(
-        "INSERT INTO accounts (id, login, is_default, kind, access_token, settings_json) VALUES ('acct-1', ?, 1, 'github', 'gho_secret', ?)",
-      ).run(account.login, JSON.stringify(account.settings));
+        "INSERT INTO accounts (id, login, is_default, kind, settings_json) VALUES (?, ?, ?, ?, ?)",
+      ).run(
+        `acct-${i}`,
+        a.login,
+        a.isDefault ? 1 : 0,
+        a.kind ?? "github",
+        JSON.stringify(a.settings),
+      );
+      if (!tokenTrap) {
+        db.prepare("UPDATE accounts SET access_token = 'gho_secret' WHERE id = ?").run(`acct-${i}`);
+      }
+    });
+    // A token column that fails whenever it is read: any query that touches
+    // it (SELECT * included) errors, so access reads as unknown, not none.
+    if (tokenTrap) {
+      db.exec(
+        "ALTER TABLE accounts ADD COLUMN access_token TEXT GENERATED ALWAYS AS (json_extract('{', '$')) VIRTUAL;",
+      );
     }
     db.close();
   }
+  const setSelection = (value) => {
+    const db = new DatabaseSync(dbPath());
+    db.prepare("UPDATE app_state SET value = ? WHERE key = ?").run(value, SELECTED);
+    db.close();
+  };
   const withAccess = { login: "octo", settings: { copilotAccess: true, copilotAppEnabled: true } };
   const noAccess = { login: "octo", settings: { copilotAccess: false, copilotAppEnabled: false } };
 
@@ -630,12 +652,67 @@ describe("copilot-app default model and Copilot access", () => {
     assert.equal(selected(), undefined);
 
     await copilotAppAdapter.enable(enableInput());
-    const db = new DatabaseSync(dbPath());
-    db.prepare("UPDATE app_state SET value = 'auto' WHERE key = ?").run(SELECTED);
-    db.close();
+    setSelection("auto");
     assert.deepEqual(await copilotAppAdapter.probe(), { active: true, model: null });
-    await copilotAppAdapter.disable();
+    const off = await copilotAppAdapter.disable();
     assert.equal(selected(), "auto", "the user's own pick stays");
+    assert.deepEqual(off.notes, [
+      "left the app's selected model (auto) because you picked it after aiand copilot-app on",
+    ]);
+  });
+
+  test("a pick made between two ons is the one off puts back", async () => {
+    createAppDb();
+    addLiveAppTables({ selection: "auto", account: withAccess });
+    await copilotAppAdapter.enable(enableInput());
+    setSelection("github/gpt-x");
+    await copilotAppAdapter.enable(enableInput());
+    await copilotAppAdapter.disable();
+    assert.equal(selected(), "github/gpt-x");
+  });
+
+  test("a re-on that finds the selection still ours keeps the first pick for off", async () => {
+    createAppDb();
+    addLiveAppTables({ selection: "auto", account: withAccess });
+    await copilotAppAdapter.enable(enableInput());
+    await copilotAppAdapter.enable(enableInput({ model: "qwen/qwen3.8-27b", pinModel: true }));
+    await copilotAppAdapter.disable();
+    assert.equal(selected(), "auto");
+  });
+
+  test("a record from another COPILOT_HOME never hands its pick to this database", async () => {
+    createAppDb();
+    addLiveAppTables({ selection: "auto", account: withAccess });
+    await copilotAppAdapter.enable(enableInput());
+    const other = join(process.env.AIAND_HOME, "other-copilot-home");
+    rmSync(other, { recursive: true, force: true });
+    mkdirSync(other, { recursive: true });
+    await withEnv({ COPILOT_HOME: other }, async () => {
+      createAppDb();
+      addLiveAppTables({ account: withAccess });
+      // Our selection shape in this database, but no row the record names.
+      const db = new DatabaseSync(dbPath());
+      db.prepare("INSERT INTO app_state (key, value) VALUES (?, ?)").run(SELECTED, "other/pick");
+      db.close();
+      await copilotAppAdapter.enable(enableInput());
+      await copilotAppAdapter.disable();
+      assert.equal(selected(), "other/pick");
+    });
+  });
+
+  test("off hands the pick back even when the app already removed our row", async () => {
+    createAppDb();
+    addLiveAppTables({ selection: "auto", account: withAccess });
+    await copilotAppAdapter.enable(enableInput());
+    const id = ourProviders()[0].id;
+    const db = new DatabaseSync(dbPath());
+    db.exec(
+      `DELETE FROM provider_models WHERE provider_id = '${id}'; DELETE FROM model_providers WHERE id = '${id}';`,
+    );
+    db.close();
+    assert.equal(selected(), `${id}/zai-org/glm-5.3`);
+    assert.equal((await copilotAppAdapter.disable()).stripped, true);
+    assert.equal(selected(), "auto");
   });
 
   test("off clears a stale selection of ours even with the record gone", async () => {
@@ -696,6 +773,65 @@ describe("copilot-app default model and Copilot access", () => {
       await copilotAppAdapter.disable(),
     ]);
     assert.doesNotMatch(out, /gho_secret/);
+  });
+
+  test("access is read without ever touching the token column", async () => {
+    createAppDb();
+    addLiveAppTables({ account: noAccess, tokenTrap: true });
+    const result = await copilotAppAdapter.enable(enableInput());
+    // Reading access_token throws, which would read as unknown access.
+    assert.ok(result.warnings.some((w) => /\(octo\) has no Copilot access/.test(w)));
+    assert.match((await copilotAppAdapter.probe()).warnings[0], /\(octo\) had no Copilot access/);
+  });
+
+  test("a GitHub Enterprise Server account counts as signed in", async () => {
+    createAppDb();
+    addLiveAppTables({ accounts: [{ ...noAccess, kind: "github_enterprise_server" }] });
+    await copilotAppAdapter.enable(enableInput());
+    assert.match((await copilotAppAdapter.probe()).warnings[0], /\(octo\) had no Copilot access/);
+  });
+
+  test("several accounts: the app picks one per project, so only some lacking access is softer", async () => {
+    createAppDb();
+    addLiveAppTables({
+      accounts: [
+        { login: "work", settings: { copilotAppEnabled: true }, isDefault: true },
+        { login: "home", settings: { copilotAppEnabled: false } },
+      ],
+    });
+    const result = await copilotAppAdapter.enable(enableInput());
+    assert.ok(
+      result.warnings.includes(
+        "Some GitHub accounts signed in to the app (home) have no Copilot access. The app picks an account for each project, and a project that uses one of them will not start a session, even on ai&. Turn on Copilot Free (https://github.com/settings/copilot) or get a Copilot seat, then reopen the app.",
+      ),
+      result.warnings.join("\n"),
+    );
+    assert.deepEqual((await copilotAppAdapter.probe()).warnings, [
+      "When the app last checked, some of its GitHub accounts (home) had no Copilot access. The app picks an account for each project, and a project that uses one of them will not start a session, even on ai&. Turn on Copilot Free (https://github.com/settings/copilot) or get a Copilot seat, then reopen the app.",
+    ]);
+  });
+
+  test("several accounts, none with access: on and status say none of them has it", async () => {
+    createAppDb();
+    addLiveAppTables({
+      accounts: [
+        { login: "work", settings: { copilotAppEnabled: false }, isDefault: true },
+        { login: "home", settings: { copilotAppEnabled: false } },
+      ],
+    });
+    const result = await copilotAppAdapter.enable(enableInput());
+    assert.ok(
+      result.warnings.some((w) =>
+        w.startsWith(
+          "None of the GitHub accounts signed in to the app (work, home) has Copilot access, so the app will not start a session, even on ai&.",
+        ),
+      ),
+      result.warnings.join("\n"),
+    );
+    assert.match(
+      (await copilotAppAdapter.probe()).warnings[0],
+      /^When the app last checked, none of its GitHub accounts \(work, home\) had Copilot access/,
+    );
   });
 
   test("an unparsable account row reads as unknown access, never a failure", async () => {
