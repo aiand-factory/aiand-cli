@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import fsp from "node:fs/promises";
-import { syncBuiltinESMExports } from "node:module";
 import { createServer } from "node:http";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import test, { describe } from "node:test";
 import {
@@ -235,7 +235,8 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
     // activateProfile writes config.json (an atomic rename) after the credential is saved.
     const original = fsp.rename;
     fsp.rename = async (from, to, ...rest) => {
-      if (String(to).endsWith("config.json")) throw Object.assign(new Error("no space left"), { code: "ENOSPC" });
+      if (String(to).endsWith("config.json"))
+        throw Object.assign(new Error("no space left"), { code: "ENOSPC" });
       return original(from, to, ...rest);
     };
     syncBuiltinESMExports();
@@ -258,7 +259,10 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
       origin: "device",
       bound_to: stubBinding(),
     });
-    const replaced = await replace.noteReplacedSignIn("default", await config.loadCredential("default"));
+    const replaced = await replace.noteReplacedSignIn(
+      "default",
+      await config.loadCredential("default"),
+    );
     writeFileSync(join(dir, "credentials.json"), "{ not json");
     const captured = captureOutput();
     let outcome;
