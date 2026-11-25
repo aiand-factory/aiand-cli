@@ -41,8 +41,22 @@ breaking changes while the command surface settles.
 - `aiand claude status` lists every model Claude Code can send requests to
   (each slot and the auto-mode safety checks) and warns about any slot that
   holds a model other than the one you chose.
+### Added
+
+- Both installers finish with an agent summary: which coding-agent binaries
+  are on `PATH`, the install hint for each one that is missing, and a nudge
+  to run `aiand init`. The hint is that adapter's own install command for
+  this machine (Jouzu included). The Copilot desktop app is left out; it is
+  not a PATH binary. The installer still never wires agents itself.
+
 ### Changed
 
+- Signing in again revokes the key the old sign-in created. `aiand login
+  --force`, or yes to "Sign in again and replace it?", used to leave that key
+  valid with nothing on the machine able to revoke it. The revoke runs after
+  the new sign-in is stored and goes to where the old key was issued, so a
+  failed or cancelled sign-in keeps the old one. `--keep-remote` keeps the old
+  key valid. A pasted key is never revoked.
 - `aiand claude` and `aiand claude on` point Claude Code's auto-mode safety
   checks at the fast model (`CLAUDE_CODE_AUTO_MODE_MODEL`) instead of the main
   one. Each check sends about 30,000 input tokens, and on the main model the
@@ -52,6 +66,13 @@ breaking changes while the command surface settles.
   auto mode working when Claude Code removes its fallback for them.
 - The README and the npm page link the CLI guide at
   [docs.aiand.com/cli](https://docs.aiand.com/cli/), not the docs home page.
+- A source-build `npm ci` passes `--prefer-offline`, so a re-run reuses the
+  npm cache and still downloads anything the cache does not have.
+- `install.sh` reads the first `"version"` key in package.json without
+  spawning node, so a later `"version"` on the same line cannot win.
+- `install.ps1` runs the `aiand` launcher, and `aiand.cmd` only when
+  `OS` is `Windows_NT`, so the version check and the login offer work under
+  PowerShell on Linux.
 
 ## [0.8.0] - 2026-11-20
 

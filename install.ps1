@@ -161,6 +161,25 @@ function Write-InstallNotes {
     if ($script:InstallNotes.Count -eq 0) { return }
     foreach ($note in $script:InstallNotes) { Write-Output "Note: $note" }
 }
+# Post-install summary on stdout: which PATH coding agents are present, and
+# the install hint for each one that is missing. The hint is that adapter's
+# install.command, printed by the package just installed. A missing script
+# (an older release) does not fail the install.
+function Write-AgentSummary {
+    param([Parameter(Mandatory = $true)][string]$SourceDir)
+    $summary = Join-Path $SourceDir 'dist/agents/install-summary.js'
+    if (-not (Test-Path -LiteralPath $summary)) { return }
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) { return }
+    # The summary must not fail the install, and must not leave node's exit
+    # code for Show-InstalledVersion to read.
+    $prev = $ErrorActionPreference
+    $savedExit = $LASTEXITCODE
+    $ErrorActionPreference = 'Continue'
+    try { & $node.Source --disable-warning=ExperimentalWarning $summary } catch { }
+    $ErrorActionPreference = $prev
+    if ($null -eq $savedExit) { $global:LASTEXITCODE = 0 } else { $global:LASTEXITCODE = $savedExit }
+}
 # Only https://github.com/aiandlabs/aiand-cli(.git) may be a URL source.
 # Local paths stay allowed: they carry no network trust decision.
 function Assert-AllowlistedHttpsUri {
@@ -835,7 +854,9 @@ function Ensure-Build {
     if ($env:AIAND_INSTALL_VERBOSE -eq '1') { $npmLoglevel = 'notice' }
     # --omit=dev would drop the TypeScript compiler the build needs; the CLI
     # itself ships zero runtime dependencies, so node_modules never runs.
-    try { Push-Location $SourceDir; try { & npm ci --ignore-scripts --no-fund --no-audit --loglevel="$npmLoglevel" 2>&1; if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' } } finally { Pop-Location } } catch { throw 'error: staged aiand verification failed; the existing installation was left unchanged.' }
+    # --prefer-offline reuses the npm cache on a re-run and still hits the
+    # network when a package is missing.
+    try { Push-Location $SourceDir; try { & npm ci --ignore-scripts --no-fund --no-audit --prefer-offline --loglevel="$npmLoglevel" 2>&1; if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' } } finally { Pop-Location } } catch { throw 'error: staged aiand verification failed; the existing installation was left unchanged.' }
     try {
         Push-Location $SourceDir
         try {
@@ -1496,9 +1517,14 @@ function Invoke-Main {
     Write-Step 'Installing CLI...'
     Install-CliLauncher -SourceDir $finalDir
     Write-InstallNotes
-    $launcherCmd = Join-Path $BinDir 'aiand.cmd'
-    Show-InstalledVersion -Launcher $launcherCmd
-    Invoke-LoginOffer -Launcher $launcherCmd
+    Write-AgentSummary -SourceDir $finalDir
+    # Windows runs the cmd shim. Anywhere else (pwsh on Linux) the shim is not
+    # executable, so the version check and the login offer use the bash launcher.
+    $launcherName = 'aiand'
+    if ($env:OS -eq 'Windows_NT') { $launcherName = 'aiand.cmd' }
+    $launcher = Join-Path $BinDir $launcherName
+    Show-InstalledVersion -Launcher $launcher
+    Invoke-LoginOffer -Launcher $launcher
 }
 try {
     Invoke-Main -MainArgs $RemainingArgs
