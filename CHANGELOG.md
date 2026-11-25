@@ -16,6 +16,8 @@ breaking changes while the command surface settles.
   `CLAUDE_CODE_AUTO_MODE_SERVER=0`, so Claude Code runs the checks itself
   rather than asking ai& for server-side checks it cannot provide; this keeps
   auto mode working when Claude Code removes its fallback for them.
+- The README and the npm page link the CLI guide at
+  [docs.aiand.com/cli](https://docs.aiand.com/cli/), not the docs home page.
 
 ## [0.8.0] - 2026-11-20
 
