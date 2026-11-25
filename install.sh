@@ -192,6 +192,18 @@ print_install_notes() {
   done
 }
 
+# Post-install summary on stdout: which PATH coding agents are present, and
+# the install hint for each one that is missing. The hint is that adapter's
+# install.command, printed by the package just installed, so the shell script
+# does not carry a second copy. A missing script (an older release) does not
+# fail the install. Wiring still waits for `aiand init`.
+print_agent_summary() {
+  local summary="${1}/dist/agents/install-summary.js"
+  [[ -f "${summary}" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  node --disable-warning=ExperimentalWarning "${summary}" || true
+}
+
 node_meets_minimum() {
   local version major minor
   version="$(node -p "process.versions.node" 2>/dev/null || echo "0.0.0")"
@@ -755,12 +767,28 @@ async function latestOnNpm() {
 AIAND_RELEASE_HELPER
 }
 
+# The first "version" key, or nothing. Bash, not node: verify already spawns
+# node to run the CLI, and this read happens again for the installed copy.
+# Leftmost match, so a one-line package.json whose later object also has
+# "version" cannot win. A missing file is empty, not a failed install.
+package_json_version() {
+  local line
+  [[ -f "${1:-}" ]] || return 0
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" =~ \"version\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+      printf '%s\n' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done < "$1"
+  return 0
+}
+
 # The version of the aiand install at INSTALL_DIR, or nothing when there is
 # none. The release helper refuses to go below it unless AIAND_VERSION says so.
 installed_version() {
   local pkg="${INSTALL_DIR}/package.json"
   is_aiand_cli_package "${pkg}" || return 0
-  node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version' -- "${pkg}" 2>/dev/null || true
+  package_json_version "${pkg}"
 }
 
 # Stage 3, release path: resolve the release, then download, verify, and
@@ -921,7 +949,7 @@ remove_leftover() {
 verify_built_cli() {
   local source_dir="$1" want="${2:-}" node_bin expected actual
   node_bin="$(command -v node)"
-  expected="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version' -- "${source_dir}/package.json" 2>/dev/null || true)"
+  expected="$(package_json_version "${source_dir}/package.json")"
   if [[ -z "${expected}" || ( -n "${want}" && "${expected}" != "${want}" ) ]]; then
     echo "error: staged aiand verification failed; the existing installation was left unchanged." >&2
     exit 1
@@ -949,7 +977,9 @@ ensure_build() {
   fi
   # --omit=dev would drop the TypeScript compiler the build needs; the CLI
   # itself ships zero runtime dependencies, so node_modules never runs.
-  if ! (cd "${source_dir}" && npm ci --ignore-scripts --no-fund --no-audit --loglevel="${npm_loglevel}"); then
+  # --prefer-offline reuses the npm cache on a re-run and still hits the
+  # network when a package is missing.
+  if ! (cd "${source_dir}" && npm ci --ignore-scripts --no-fund --no-audit --prefer-offline --loglevel="${npm_loglevel}"); then
     echo "error: staged aiand verification failed; the existing installation was left unchanged." >&2
     exit 1
   fi
@@ -1565,6 +1595,7 @@ main() {
   install_cli_launcher "${final_dir}"
 
   print_install_notes
+  print_agent_summary "${final_dir}"
   show_installed_version "${HOME}/.local/bin/aiand"
   offer_login "${HOME}/.local/bin/aiand"
 }
