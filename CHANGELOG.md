@@ -17,6 +17,7 @@ breaking changes while the command surface settles.
 
 ### Changed
 
+- After an upgrade, aiand prints one link to the release notes instead of four full changelog bullets.
 - Signing in again revokes the key the old sign-in created. `aiand login
   --force`, or yes to "Sign in again and replace it?", used to leave that key
   valid with nothing on the machine able to revoke it. The revoke runs after
