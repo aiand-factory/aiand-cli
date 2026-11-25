@@ -7,6 +7,68 @@ breaking changes while the command surface settles.
 
 ## [Unreleased]
 
+### Fixed
+
+- `aiand copilot-app on` and `status` say when no GitHub account is signed
+  in to the app, or when an account has no Copilot access (GitHub Enterprise
+  Server accounts included). The app does not start a session without
+  Copilot access, even when every request goes to ai&; Copilot Free is
+  enough. The app picks an account for each project, so when only some
+  accounts lack access, the message names them.
+- Bare `aiand copilot --model <id>` and `--model=<id>` launches now validate the
+  requested id against the catalog and refuse to spawn when GitHub Copilot is
+  already configured for a different model, instead of overriding that model
+  unchecked. The error points to `aiand copilot on --model <id>`; a matching
+  model still opens with the original arguments.
+- `--model <id>` now puts every model slot of Claude Code on that model:
+  Opus, Sonnet, Fable, subagent, and the fast `haiku` slot that session
+  titles and other background calls use. Before, `aiand claude on --model`
+  left the fast slot on `deepseek-ai/deepseek-v4.1-flash-1017`, and
+  `aiand claude --model <id>` (one session) left every slot but the startup
+  model on `moonshotai/kimi-k3`, so auto mode's safety checks went there.
+  A model set with `aiand config set model` counts as a choice too, and a
+  later `on` follows a new one. `aiand claude` sessions keep a model given
+  to `on --model`. `on` also writes `CLAUDE_CODE_AUTO_MODE_MODEL` (the
+  safety checks' model, Claude Code 2.1.302+) to the chosen model, so one
+  exported in the shell cannot send the checks elsewhere. A re-run of
+  `aiand claude on` moves a fast slot that 0.8.0 left behind.
+- `aiand claude --model <id>` and `aiand run-agent <agent> -- --model <id>`
+  run the session on that model. Before, Copilot, Pi, omp and Hermes dropped
+  a `--model` given after `--` and started on the default model, and Claude
+  Code got the flag while its other slots stayed on the default. A model ai&
+  does not serve is now refused instead of replaced.
+- `aiand <agent> --model <id>` on an agent that is not set up yet sets it up
+  on that model, not on the default, so a later plain launch stays on it.
+- OpenCode: `aiand opencode on` and one-session launches set `small_model`
+  to the chosen model, so titles and summaries stay on it instead of a model
+  OpenCode picks; `off` hands back a `small_model` of your own. A `--model`
+  or `-m` in `aiand opencode`'s arguments is no longer overridden.
+- Claude Code sessions started through aiand get the startup model's full
+  `context_window` from the ai& catalog, including 1M and larger windows,
+  instead of a shared 200K cap, so they no longer compact at 200K on a model
+  that holds more. The budget follows the model the session starts on: the
+  `--model` choice that every slot now uses, a kept `model` setting, or an
+  alias such as `aiand claude --model haiku`. A `--fast-model` does not
+  shrink it. Claude Code keeps one budget per process, so a `/model` switch
+  inside a session keeps the startup model's; start a new session with
+  `aiand claude --model <id>` to change it. `off` puts back a value of your
+  own.
+
+### Added
+
+- `--fast-model <id>` for `aiand claude on`, `aiand claude` and
+  `aiand run-agent claude`: a separate model for Claude Code's background
+  calls and auto mode's safety checks. Without it, they use `--model`.
+- `aiand claude status` lists every model Claude Code can send requests to
+  (each slot and the auto-mode safety checks) and warns about any slot that
+  holds a model other than the one you chose.
+
+- Both installers finish with an agent summary: which coding-agent binaries
+  are on `PATH`, the install hint for each one that is missing, and a nudge
+  to run `aiand init`. The hint is that adapter's own install command for
+  this machine (Jouzu included). The Copilot desktop app is left out; it is
+  not a PATH binary. The installer still never wires agents itself.
+
 ### Changed
 
 - `aiand copilot-app on` makes the ai& model the one new GitHub Copilot app
@@ -14,6 +76,9 @@ breaking changes while the command surface settles.
   puts back the model the app had selected before `on`, or leaves a model
   you picked since and says so, and `status` shows the model new sessions
   start on.
+- After an upgrade, aiand prints one link to the release notes instead of four full changelog bullets.
+- `/model` rows in Claude Code show each model's published context window
+  (`ai& · 1M context`) instead of the 200K cap.
 - The CLI now sends its requests through `HTTPS_PROXY`/`HTTP_PROXY` and trusts
   the system certificate store. It requires Node 22.21 or later.
 - Signing in again revokes the key the old sign-in created. `aiand login
@@ -38,53 +103,6 @@ breaking changes while the command surface settles.
 - `install.ps1` runs the `aiand` launcher, and `aiand.cmd` only when
   `OS` is `Windows_NT`, so the version check and the login offer work under
   PowerShell on Linux.
-
-### Fixed
-
-- `aiand copilot-app on` and `status` say when no GitHub account is signed
-  in to the app, or when an account has no Copilot access (GitHub Enterprise
-  Server accounts included). The app does not start a session without
-  Copilot access, even when every request goes to ai&; Copilot Free is
-  enough. The app picks an account for each project, so when only some
-  accounts lack access, the message names them.
-- `--model <id>` now puts every model slot of Claude Code on that model:
-  Opus, Sonnet, Fable, subagent, and the fast `haiku` slot that session
-  titles and other background calls use. Before, `aiand claude on --model`
-  left the fast slot on `deepseek-ai/deepseek-v4.1-flash-1017`, and
-  `aiand claude --model <id>` (one session) left every slot but the startup
-  model on `moonshotai/kimi-k3`, so auto mode's safety checks went there.
-  A model set with `aiand config set model` counts as a choice too, and a
-  later `on` follows a new one. `aiand claude` sessions keep a model given
-  to `on --model`. `on` also writes `CLAUDE_CODE_AUTO_MODE_MODEL` (the
-  safety checks' model, Claude Code 2.1.302+) to the chosen model, so one
-  exported in the shell cannot send the checks elsewhere. A re-run of
-  `aiand claude on` moves a fast slot that 0.8.0 left behind.
-- `aiand claude --model <id>` and `aiand run-agent <agent> -- --model <id>`
-  run the session on that model. Before, Copilot, Pi, omp and Hermes dropped
-  a `--model` given after `--` and started on the default model, and Claude
-  Code got the flag while its other slots stayed on the default. A model ai&
-  does not serve is now refused instead of replaced.
-- `aiand <agent> --model <id>` on an agent that is not set up yet sets it up
-  on that model, not on the default, so a later plain launch stays on it.
-- OpenCode: `aiand opencode on` and one-session launches set `small_model`
-  to the chosen model, so titles and summaries stay on it instead of a model
-  OpenCode picks; `off` hands back a `small_model` of your own. A `--model`
-  or `-m` in `aiand opencode`'s arguments is no longer overridden.
-
-### Added
-
-- `--fast-model <id>` for `aiand claude on`, `aiand claude` and
-  `aiand run-agent claude`: a separate model for Claude Code's background
-  calls and auto mode's safety checks. Without it, they use `--model`.
-- `aiand claude status` lists every model Claude Code can send requests to
-  (each slot and the auto-mode safety checks) and warns about any slot that
-  holds a model other than the one you chose.
-
-- Both installers finish with an agent summary: which coding-agent binaries
-  are on `PATH`, the install hint for each one that is missing, and a nudge
-  to run `aiand init`. The hint is that adapter's own install command for
-  this machine (Jouzu included). The Copilot desktop app is left out; it is
-  not a PATH binary. The installer still never wires agents itself.
 
 ## [0.8.0] - 2026-11-20
 

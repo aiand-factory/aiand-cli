@@ -1,3 +1,4 @@
+import { getCatalog, validateCatalogModel } from "../agents/catalog.js";
 import {
   agentBaseEnv,
   installIfMissing,
@@ -117,7 +118,20 @@ async function runOpen(
     });
     return runSession([adapter.id, ...flags, "--", ...passthrough]);
   }
-  const wired = !retarget && (await adapter.probe()).active;
+  const probe = retarget ? undefined : await adapter.probe();
+  if (adapter.id === "copilot") {
+    const [requestedModel] = takeFlagValues(passthrough, ["--model"]).values.slice(-1);
+    if (requestedModel !== undefined) {
+      const catalog = await getCatalog(resolveProfile(profile).apiUrl);
+      validateCatalogModel(catalog, requestedModel);
+      if (probe?.active && probe.model !== null && probe.model !== requestedModel) {
+        throw new CliError("GitHub Copilot is already configured for a different model.", {
+          hint: `Run \`aiand copilot on --model ${requestedModel}\` to change it.`,
+        });
+      }
+    }
+  }
+  const wired = !retarget && probe?.active === true;
   if (!wired) {
     // A model in the agent's own args is the one to wire, not our default:
     // otherwise later plain launches stay on a model the user never picked.
@@ -140,12 +154,12 @@ async function runOpen(
         },
       );
     }
-    const probe = await adapter.probe();
+    const after = await adapter.probe();
     // `on` already said why the app may not work; an app wired before says it here.
-    if (wired) printNotes(probe.warnings ?? []);
+    if (wired) printNotes(after.warnings ?? []);
     out(
-      probe.model
-        ? `Open the GitHub Copilot app. New sessions start on ${safeLine(probe.model)}.`
+      after.model
+        ? `Open the GitHub Copilot app. New sessions start on ${safeLine(after.model)}.`
         : "Open the GitHub Copilot app and pick the ai& model in its model menu.",
     );
     return;
