@@ -435,6 +435,7 @@ export const hermesAdapter: AgentAdapter = {
   label: "Hermes Agent",
   bin: HERMES_BIN,
   install: HERMES_INSTALL,
+  launchModelFlags: ["--model", "-m"],
   // The product's full name (install domain, docs): `aiand hermes-agent
   // on` and `aiand run-agent hermes-agent` resolve like `hermes`, the way
   // `claude-code` resolves to `claude`.

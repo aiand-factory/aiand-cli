@@ -111,16 +111,17 @@ export function catalogModel(
 }
 
 /**
- * Start test/mock-gateway.mjs as its own process; resolves
+ * Start test/mock-gateway.mjs as its own process (`args`: its own flags,
+ * e.g. `--log <file>`); resolves
  * { port, url, kill, stop } once it listens. `stop()` kills it and awaits
  * its exit. A separate process — not an in-test-process server — because
  * specs drive the CLI via child processes, which a blocked parent event loop
  * could never answer. Use it directly for a file-wide gateway (before/after);
  * withMockGateway scopes one to a single callback.
  */
-export async function startMockGateway() {
+export async function startMockGateway({ args = [] } = {}) {
   const gateway = fileURLToPath(new URL("./mock-gateway.mjs", import.meta.url));
-  const child = spawn(process.execPath, [gateway, "--port", "0"], {
+  const child = spawn(process.execPath, [gateway, "--port", "0", ...args], {
     stdio: ["ignore", "pipe", "inherit"],
   });
   // 'close' fires after stdio drains even when spawn emits only 'error'
