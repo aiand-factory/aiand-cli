@@ -1,18 +1,28 @@
-import { installIfMissing, runAgentBinary } from "../agents/launch.js";
+import { getCatalog, validateCatalogModel } from "../agents/catalog.js";
+import {
+  agentBaseEnv,
+  installIfMissing,
+  runAgentBinary,
+  takeFlagValues,
+} from "../agents/launch.js";
 import { AGENTS } from "../agents/registry.js";
 import { agentOff, agentOn, agentStatus } from "../agents/setup.js";
 import type { AgentAdapter, Verb } from "../agents/types.js";
 import { requireSessionKey } from "../auth/session.js";
 import { bool, type Parsed, parse, str } from "../cli/args.js";
 import { CliError } from "../cli/errors.js";
-import { err, fields, json, out, style } from "../cli/output.js";
+import { err, fields, json, out, printNotes, safeLine, style, styled } from "../cli/output.js";
 import { agentHome, resolveProfile } from "../config.js";
+import { run as runSession } from "./run-agent.js";
 
 const VERBS: Verb[] = ["on", "off", "status"];
 
 export function agentHelp(adapter: AgentAdapter): string {
   const flags = [
-    "      --model <id>        model to route (default: catalog preferred)",
+    "      --model <id>        model for everything the agent sends (default: catalog preferred)",
+    ...(adapter.fastModelFlag
+      ? ["      --fast-model <id>   a separate model for background calls (default: --model)"]
+      : []),
     "      --force             escape quit-guards when the app holds config in memory",
     "      --json              machine-readable output",
     "      --profile <name>    use a stored profile",
@@ -28,9 +38,11 @@ export function agentHelp(adapter: AgentAdapter): string {
   const openUsage = adapter.configOnly
     ? `  aiand [--profile <name>] ${adapter.id}`
     : `  aiand [--profile <name>] ${adapter.id} [args…]`;
-  const openPara = adapter.configOnly
-    ? `  With no verb, aiand wires ${adapter.label} to ai& (a missing agent prints its install command; npm installs run after a yes). Then open the GitHub Copilot app yourself and pick the ai& model in its model menu.`
-    : `  With no verb, aiand opens ${adapter.label} on ai&: a missing agent prints its install command (npm installs run after a yes), it wires it with \`on\` when it is not wired yet, then runs ${adapter.bin} with your args verbatim. Put aiand's own flags before the agent name, and \`--\` before an arg that is a verb.`;
+  const openPara = adapter.openLaunchesSession
+    ? `  When you run \`aiand ${adapter.id}\` on its own, it starts one ${adapter.label} session on ai&. Your other ${adapter.label} windows stay as they are. If ${adapter.label} is not installed, aiand shows the install command (and runs npm installs if you say yes). Your args go straight to ${adapter.bin}. Put aiand's own flags before "${adapter.id}", and put \`--\` before an arg that is also an aiand command (on, off, status). To send every ${adapter.bin} through ai&, use \`aiand ${adapter.id} on\`.`
+    : adapter.configOnly
+      ? `  When you run \`aiand ${adapter.id}\` on its own, it sets up ${adapter.label} to use ai&. If ${adapter.label} is not installed, aiand shows the install command (and runs npm installs if you say yes). Then open the GitHub Copilot app yourself and pick the ai& model in its model menu.`
+      : `  When you run \`aiand ${adapter.id}\` on its own, it opens ${adapter.label} on ai&. If ${adapter.label} is not installed, aiand shows the install command (and runs npm installs if you say yes). If it is not set up for ai& yet, aiand runs \`aiand ${adapter.id} on\` first. Your args go straight to ${adapter.bin}. Put aiand's own flags before "${adapter.id}", and put \`--\` before an arg that is also an aiand command (on, off, status).`;
   return `${style.bold(`aiand ${adapter.id}`)} -- ${adapter.label} on ai&
 
 Usage
@@ -66,6 +78,7 @@ export async function runAgentCommand(
   // GLOBAL_OPTIONS so `-h` keeps its short (see args.ts preserve-short).
   const options = {
     model: { type: "string" },
+    "fast-model": { type: "string" },
     force: { type: "boolean", default: false },
   } as const;
   const parsed = parse([...argv, ...globalArgs], options);
@@ -98,10 +111,36 @@ async function runOpen(
   const profile = str(target, "profile");
   const retarget = profile !== undefined || str(target, "base-url") !== undefined;
   await installIfMissing(adapter);
-  if (retarget || !(await adapter.probe()).active) {
-    const result = await agentOn(adapter, { profile });
+  if (adapter.openLaunchesSession) {
+    const flags = ["profile", "base-url"].flatMap((flag) => {
+      const value = str(target, flag);
+      return value === undefined ? [] : [`--${flag}`, value];
+    });
+    return runSession([adapter.id, ...flags, "--", ...passthrough]);
+  }
+  const probe = retarget ? undefined : await adapter.probe();
+  if (adapter.id === "copilot") {
+    const [requestedModel] = takeFlagValues(passthrough, ["--model"]).values.slice(-1);
+    if (requestedModel !== undefined) {
+      const catalog = await getCatalog(resolveProfile(profile).apiUrl);
+      validateCatalogModel(catalog, requestedModel);
+      if (probe?.active && probe.model !== null && probe.model !== requestedModel) {
+        throw new CliError("GitHub Copilot is already configured for a different model.", {
+          hint: `Run \`aiand copilot on --model ${requestedModel}\` to change it.`,
+        });
+      }
+    }
+  }
+  if (retarget || !probe?.active) {
+    // A model in the agent's own args is the one to wire, not our default:
+    // otherwise later plain launches stay on a model the user never picked.
+    const [launchModel] = takeFlagValues(
+      passthrough,
+      adapter.launchModelFlags ?? ["--model"],
+    ).values.slice(-1);
+    const result = await agentOn(adapter, { profile, launchModel });
     err(style.green(`${adapter.label} is now using ai&.`));
-    for (const warning of result.warnings) err(style.dim(warning));
+    printNotes(result.warnings);
   } else {
     await requireSessionKey();
   }
@@ -123,8 +162,7 @@ async function runOpen(
       profileModel: resolveProfile(profile).model,
     })) ?? {};
   // Same precedent as run-agent.ts: the adapter injection carries the key, so the spawn env starts scrubbed.
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  delete env.AIAND_API_KEY;
+  const env = agentBaseEnv(adapter);
   // Same drop as run-agent: names the adapter lists would outrank the
   // config `on` just wrote (Hermes reads ANTHROPIC_* / OPENAI_* over its files).
   for (const key of adapter.shadowEnv ?? []) delete env[key];
@@ -139,6 +177,7 @@ async function runOpen(
 async function runOn(adapter: AgentAdapter, parsed: Parsed, jsonOut: boolean): Promise<void> {
   const result = await agentOn(adapter, {
     model: str(parsed, "model"),
+    fastModel: str(parsed, "fast-model"),
     force: bool(parsed, "force"),
     profile: str(parsed, "profile"),
   });
@@ -152,9 +191,7 @@ async function runOn(adapter: AgentAdapter, parsed: Parsed, jsonOut: boolean): P
     ["model", result.model],
     ["files", result.files.join(", ")],
   ]);
-  for (const warning of result.warnings ?? []) {
-    err(style.dim(warning));
-  }
+  printNotes(result.warnings ?? []);
 }
 
 async function runOff(adapter: AgentAdapter, parsed: Parsed, jsonOut: boolean): Promise<void> {
@@ -162,11 +199,8 @@ async function runOff(adapter: AgentAdapter, parsed: Parsed, jsonOut: boolean): 
   if (jsonOut) {
     return json(result);
   }
-  if (result.note) {
-    out(style.dim(result.note));
-    return;
-  }
-  out(`${adapter.label} is off.`);
+  out(result.note ? style.dim(safeLine(result.note)) : `${adapter.label} is off.`);
+  printNotes(result.warnings ?? []);
 }
 
 async function runStatus(adapter: AgentAdapter, jsonOut: boolean): Promise<void> {
@@ -175,13 +209,21 @@ async function runStatus(adapter: AgentAdapter, jsonOut: boolean): Promise<void>
     return json(result);
   }
 
-  const modelLabel: string = result.model ?? style.dim("—");
+  const modelLabel = result.model || styled(style.dim, "—");
   fields([
     ["agent", result.agent],
-    ["installed", result.installed ? (result.binary ?? style.dim("yes")) : style.dim("no")],
+    [
+      "installed",
+      result.installed ? (result.binary ?? styled(style.dim, "yes")) : styled(style.dim, "no"),
+    ],
     ["state", stateLabel(result.state)],
     ["model", modelLabel],
+    // Every model the agent can send requests to, so none is a surprise.
+    ...(result.slots ?? []).map(
+      ({ label, model }) => [`  ${label}`, model ?? styled(style.dim, "—")] as [string, string],
+    ),
   ]);
+  printNotes(result.warnings ?? []);
   if (!result.installed) {
     err(style.dim(`Install it with: ${adapter.install.command}  See: ${adapter.install.url}`));
   }
