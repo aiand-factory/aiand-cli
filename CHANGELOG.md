@@ -65,6 +65,7 @@ breaking changes while the command surface settles.
 
 ### Changed
 
+- After an upgrade, aiand prints one link to the release notes instead of four full changelog bullets.
 - `/model` rows in Claude Code show each model's published context window
   (`ai& · 1M context`) instead of the 200K cap.
 - The CLI now sends its requests through `HTTPS_PROXY`/`HTTP_PROXY` and trusts
