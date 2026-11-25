@@ -73,6 +73,7 @@ breaking changes while the command surface settles.
   the old `opencode-ai` package still installs OpenCode 1, which gets no more
   fixes. `aiand opencode on` warns when OpenCode 1 is installed and names the
   upgrade command (`opencode upgrade --major`).
+- After an upgrade, aiand prints one link to the release notes instead of four full changelog bullets.
 - The CLI now sends its requests through `HTTPS_PROXY`/`HTTP_PROXY` and trusts
   the system certificate store. It requires Node 22.21 or later.
 - Signing in again revokes the key the old sign-in created. `aiand login
