@@ -1412,11 +1412,33 @@ if (!HAS_BASH) {
       ps1.includes("npm ci --ignore-scripts --no-fund --no-audit --prefer-offline"),
     "npm ci",
   );
+  const versionFn = sh.slice(
+    sh.indexOf("package_json_version() {"),
+    sh.indexOf("\n# The version of the aiand install at INSTALL_DIR"),
+  );
+  const versionProbe = spawnSync(
+    "bash",
+    [
+      "-c",
+      [
+        "set -euo pipefail",
+        versionFn,
+        "pkg=$(mktemp)",
+        'printf \'%s\' \'{"name":"@aiand/cli","version":"1.2.3","nested":{"version":"9.9.9"}}\' > "$pkg"',
+        'got=$(package_json_version "$pkg")',
+        'rm -f "$pkg"',
+        "printf '%s' \"$got\"",
+      ].join("\n"),
+    ],
+    { encoding: "utf8" },
+  );
   check(
-    "install.sh reads package versions with sed",
-    sh.includes("package_json_version ") &&
+    "install.sh reads the first version key, not a later one on the same line",
+    (versionProbe.status ?? 1) === 0 &&
+      (versionProbe.stdout ?? "") === "1.2.3" &&
+      sh.includes("package_json_version ") &&
       !sh.includes('JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version'),
-    "package_json_version",
+    (versionProbe.stderr ?? versionProbe.stdout ?? "").split("\n")[0],
   );
   check(
     "install.ps1 runs aiand.cmd only on Windows",

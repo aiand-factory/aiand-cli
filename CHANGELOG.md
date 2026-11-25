@@ -19,8 +19,8 @@ breaking changes while the command surface settles.
 
 - A source-build `npm ci` passes `--prefer-offline`, so a re-run reuses the
   npm cache and still downloads anything the cache does not have.
-- `install.sh` reads the staged package version with `sed` instead of
-  spawning node for that read.
+- `install.sh` reads the first `"version"` key in package.json without
+  spawning node, so a later `"version"` on the same line cannot win.
 - `install.ps1` runs the `aiand` launcher, and `aiand.cmd` only when
   `OS` is `Windows_NT`, so the version check and the login offer work under
   PowerShell on Linux.

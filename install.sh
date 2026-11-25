@@ -767,14 +767,20 @@ async function latestOnNpm() {
 AIAND_RELEASE_HELPER
 }
 
-# The first "version" string, or nothing. sed, not node: verify already
-# spawns node to run the CLI, and this read happens again for the installed
-# copy. The match is not anchored, so a one-line package.json still hits.
-# No pipe to head: pipefail would turn head's early close into a failed read.
+# The first "version" key, or nothing. Bash, not node: verify already spawns
+# node to run the CLI, and this read happens again for the installed copy.
+# Leftmost match, so a one-line package.json whose later object also has
+# "version" cannot win. A missing file is empty, not a failed install.
 package_json_version() {
-  local version
-  version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1")"
-  printf '%s\n' "${version%%$'\n'*}"
+  local line
+  [[ -f "${1:-}" ]] || return 0
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" =~ \"version\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+      printf '%s\n' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done < "$1"
+  return 0
 }
 
 # The version of the aiand install at INSTALL_DIR, or nothing when there is

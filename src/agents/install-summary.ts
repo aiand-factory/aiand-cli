@@ -5,43 +5,42 @@ import { detectBinary } from "./detect.js";
 import { AGENTS } from "./registry.js";
 import type { AgentAdapter } from "./types.js";
 
-const CHECK = "\u2713";
-
-/** PATH coding agents, in registry order. A GUI app (configOnly) has no binary to probe. */
-function pathAgents(agents: readonly AgentAdapter[]): AgentAdapter[] {
-  return agents.filter((agent) => agent.configOnly !== true);
-}
+// ASCII on purpose. The summary is printed by node from install.ps1, and
+// Windows PowerShell 5.1's console is often not UTF-8, so a checkmark mojibakes.
+const PRESENT = "+";
 
 /**
  * The post-install summary. `onPath` is the PATH probe (`detectBinary` when
- * the installers run this file). Each hint is that adapter's own
- * `install.command` for this process, so the omp and Hermes lines are the
- * platform-specific ones the CLI already prints.
+ * the installers run this file); it is called once per agent. Each hint is
+ * that adapter's own `install.command` for this process, so the omp and
+ * Hermes lines are the platform-specific ones the CLI already prints. A GUI
+ * app (`configOnly`) has no PATH binary and is left out.
  */
 export function formatAgentSummary(
   agents: readonly AgentAdapter[],
   onPath: (bin: string) => boolean,
 ): string {
-  const listed = pathAgents(agents);
-  const detected = listed.filter((agent) => onPath(agent.bin));
-  const missing = listed.filter((agent) => !onPath(agent.bin));
+  const detected: AgentAdapter[] = [];
+  const missing: AgentAdapter[] = [];
+  for (const agent of agents) {
+    if (agent.configOnly === true) continue;
+    if (onPath(agent.bin)) detected.push(agent);
+    else missing.push(agent);
+  }
   const hint = (agent: AgentAdapter): string =>
     `  ${agent.id}  Install it with: ${agent.install.command}`;
   if (detected.length === 0) {
     return [
       "No coding agents detected on this machine.",
-      ...listed.map(hint),
+      ...missing.map(hint),
       "Install one, then run 'aiand init'.",
       "",
     ].join("\n");
   }
-  return [
-    "Detected agents:",
-    ...detected.map((agent) => `  ${CHECK} ${agent.id}`),
-    ...(missing.length > 0 ? ["Not installed:", ...missing.map(hint)] : []),
-    "Next: run 'aiand init' to wire them to ai&.",
-    "",
-  ].join("\n");
+  const lines = ["Detected agents:", ...detected.map((agent) => `  ${PRESENT} ${agent.id}`)];
+  if (missing.length > 0) lines.push("Not installed:", ...missing.map(hint));
+  lines.push("Next: run 'aiand init' to wire them to ai&.", "");
+  return lines.join("\n");
 }
 
 function runningAsScript(): boolean {

@@ -28,8 +28,8 @@ test("summary marks agents on PATH and prints hints only for the rest", () => {
   const present = new Set(["opencode", "jouzu"]);
   const text = formatAgentSummary(AGENTS, (bin) => present.has(bin));
   assert.match(text, /^Detected agents:\n/);
-  assert.ok(text.includes("  \u2713 opencode\n"));
-  assert.ok(text.includes("  \u2713 jouzu\n"));
+  assert.ok(text.includes("  + opencode\n"));
+  assert.ok(text.includes("  + jouzu\n"));
   assert.match(text, /Next: run 'aiand init' to wire them to ai&\.\n$/);
   for (const agent of pathAgents) {
     if (present.has(agent.bin)) assert.equal(text.includes(hintLine(agent)), false, agent.id);
@@ -47,9 +47,19 @@ test("running the summary script prints a summary and exits 0", () => {
   assert.match(run.stdout, /Detected agents:|No coding agents detected/);
 });
 
+test("summary with every PATH agent present prints no install hints", () => {
+  const bins = new Set(pathAgents.map((agent) => agent.bin));
+  const text = formatAgentSummary(AGENTS, (bin) => bins.has(bin));
+  assert.match(text, /^Detected agents:\n/);
+  assert.equal(text.includes("Not installed:"), false);
+  assert.equal(text.includes("Install it with:"), false);
+  for (const agent of pathAgents) assert.ok(text.includes(`  + ${agent.id}\n`), agent.id);
+  assert.match(text, /Next: run 'aiand init' to wire them to ai&\.\n$/);
+});
+
 test("the Copilot desktop app stays out of the summary when the copilot CLI is on PATH", () => {
   const text = formatAgentSummary(AGENTS, (bin) => bin === "copilot");
   assert.equal(text.includes("copilot-app"), false);
-  assert.ok(text.includes("  \u2713 copilot\n"));
+  assert.ok(text.includes("  + copilot\n"));
   assert.equal(text.includes("  copilot  Install it with:"), false);
 });

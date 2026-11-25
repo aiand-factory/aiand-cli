@@ -277,32 +277,4 @@ for (const adapter of AGENTS) {
     `the install summary must print ${adapter.id}'s install.command`,
   );
 }
-const installSh = readFileSync(join(repoRoot, "install.sh"), "utf8");
-const installPs1 = readFileSync(join(repoRoot, "install.ps1"), "utf8");
-const summaryScript = "dist/agents/install-summary.js";
-assert.ok(installSh.includes(summaryScript), "install.sh must run the agent summary from dist");
-assert.ok(installPs1.includes(summaryScript), "install.ps1 must run the agent summary from dist");
-assert.ok(
-  installSh.includes("npm ci --ignore-scripts --no-fund --no-audit --prefer-offline"),
-  "install.sh source builds must pass --prefer-offline",
-);
-assert.ok(
-  installPs1.includes("npm ci --ignore-scripts --no-fund --no-audit --prefer-offline"),
-  "install.ps1 source builds must pass --prefer-offline",
-);
-assert.ok(
-  installPs1.includes("if ($env:OS -eq 'Windows_NT') { $launcherName = 'aiand.cmd' }"),
-  "install.ps1 must run aiand.cmd only on Windows",
-);
-assert.equal(
-  installSh.includes('JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version'),
-  false,
-  "install.sh must read package.json's version with sed, not node -p",
-);
-assert.equal(
-  (installSh.match(/package_json_version "/g) ?? []).length,
-  2,
-  "install.sh must read both package versions through package_json_version",
-);
-
 console.log(`check-dist ok: ${binName} v${pkg.version}, 0 runtime deps`);

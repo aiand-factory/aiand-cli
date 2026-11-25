@@ -171,10 +171,14 @@ function Write-AgentSummary {
     if (-not (Test-Path -LiteralPath $summary)) { return }
     $node = Get-Command node -ErrorAction SilentlyContinue
     if (-not $node) { return }
+    # The summary must not fail the install, and must not leave node's exit
+    # code for Show-InstalledVersion to read.
     $prev = $ErrorActionPreference
+    $savedExit = $LASTEXITCODE
     $ErrorActionPreference = 'Continue'
     try { & $node.Source --disable-warning=ExperimentalWarning $summary } catch { }
     $ErrorActionPreference = $prev
+    if ($null -eq $savedExit) { $global:LASTEXITCODE = 0 } else { $global:LASTEXITCODE = $savedExit }
 }
 # Only https://github.com/aiandlabs/aiand-cli(.git) may be a URL source.
 # Local paths stay allowed: they carry no network trust decision.
