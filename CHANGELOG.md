@@ -9,6 +9,12 @@ breaking changes while the command surface settles.
 
 ### Changed
 
+- Signing in again revokes the key the old sign-in created. `aiand login
+  --force`, or yes to "Sign in again and replace it?", used to leave that key
+  valid with nothing on the machine able to revoke it. The revoke runs after
+  the new sign-in is stored and goes to where the old key was issued, so a
+  failed or cancelled sign-in keeps the old one. `--keep-remote` keeps the old
+  key valid. A pasted key is never revoked.
 - `aiand claude` and `aiand claude on` point Claude Code's auto-mode safety
   checks at the fast model (`CLAUDE_CODE_AUTO_MODE_MODEL`) instead of the main
   one. Each check sends about 30,000 input tokens, and on the main model the
