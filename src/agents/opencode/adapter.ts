@@ -6,6 +6,7 @@ import { agentHome, isRoutableBaseUrl, trimSlash, writeFileAtomic } from "../../
 import { DEFAULT_FILE_MODE, existingFileMode, PRIVATE_FILE_MODE } from "../../fsutil.js";
 import { resolveDefault } from "../catalog.js";
 import { detectBinary } from "../detect.js";
+import { takeFlagValues } from "../launch.js";
 import {
   asObject,
   jsoncDelete,
@@ -33,6 +34,9 @@ import { getApiModels, modelsFromCatalog, type OpencodeModelEntry } from "./mode
 type OpencodeRecord = {
   model?: string;
   previousModel?: string;
+  /** `small_model` (titles, summaries), written beside `model` and handed back alike. */
+  smallModel?: string;
+  previousSmallModel?: string;
   /** File mode before `on` locked it to 0600; disable() restores it. */
   previousMode?: number;
   providerAiand?: unknown;
@@ -108,6 +112,9 @@ export function buildOpencodeConfig({
     model: `${OPENCODE_PROVIDER_ID}/${model}`,
   };
   if (lockdown) {
+    // Titles and summaries on the same model: left unset, OpenCode picks its
+    // own small model, which may be one the user did not choose.
+    config.small_model = config.model;
     // Hide every built-in provider from the picker.
     config.enabled_providers = [OPENCODE_PROVIDER_ID];
     // OpenCode's own Zen provider auto-loads its models; disabled_providers
@@ -289,6 +296,11 @@ async function enable(input: EnableInput): Promise<EnableResult> {
   let recorded: string | undefined;
   let modelWritten: string | undefined;
   let previousModel: string | undefined;
+  const existingSmall = typeof current.small_model === "string" ? current.small_model : "";
+  const smallLive = prior?.smallModel !== undefined && existingSmall === prior.smallModel;
+  // Untouched by this run: the prior record stands only while the file holds it.
+  let recordedSmall = smallLive ? prior?.smallModel : undefined;
+  let previousSmall = smallLive ? prior?.previousSmallModel : undefined;
   if (isNative) {
     // leave the agent's own default
     recorded = priorLive ? priorModel : undefined;
@@ -298,6 +310,11 @@ async function enable(input: EnableInput): Promise<EnableResult> {
       warnings.push(
         `Left your existing model (${existingModel}). Switch with aiand opencode on --model <id>.`,
       );
+    } else if (existingSmall === "" || smallLive) {
+      // An ai& model kept: titles and summaries follow it (an `on` from
+      // before small_model was written left it to OpenCode's own pick).
+      text = jsoncSet(text, ["small_model"], existingModel);
+      recordedSmall = existingModel;
     }
     recorded = priorLive ? priorModel : undefined;
     previousModel = priorLive ? prior?.previousModel : undefined;
@@ -321,6 +338,11 @@ async function enable(input: EnableInput): Promise<EnableResult> {
     text = jsoncSet(text, ["model"], nextModel);
     recorded = nextModel;
     modelWritten = nextModel;
+    // Titles and summaries on the same model: left unset, OpenCode picks its
+    // own small model, which may be one the user did not choose.
+    previousSmall = smallLive ? prior?.previousSmallModel : existingSmall || undefined;
+    text = jsoncSet(text, ["small_model"], nextModel);
+    recordedSmall = nextModel;
   }
 
   // A re-on finds the file at 0600 (our lock); carry the first on's recorded
@@ -338,6 +360,8 @@ async function enable(input: EnableInput): Promise<EnableResult> {
   await recordAddedState(OPENCODE_ID, {
     model: recorded,
     previousModel,
+    smallModel: recordedSmall,
+    previousSmallModel: previousSmall,
     previousMode,
     providerAiand: withoutApiKey(providerBlock),
     created: created || (prior?.created === true && marked),
@@ -373,6 +397,7 @@ export const opencodeAdapter: AgentAdapter = {
   label: "OpenCode",
   bin: OPENCODE_BIN,
   install: OPENCODE_INSTALL,
+  launchModelFlags: ["--model", "-m"],
   aliases: ["code"],
   detect(): DetectResult {
     return detectBinary(OPENCODE_BIN);
@@ -460,6 +485,16 @@ export const opencodeAdapter: AgentAdapter = {
           else text = jsoncDelete(text, ["model"]);
         } else if (rootModel) {
           notes.push("left model because you edited it");
+        }
+      }
+      const small = typeof live.small_model === "string" ? live.small_model : "";
+      if (added?.smallModel) {
+        if (small === added.smallModel) {
+          if (added.previousSmallModel) {
+            text = jsoncSet(text, ["small_model"], added.previousSmallModel);
+          } else text = jsoncDelete(text, ["small_model"]);
+        } else if (small) {
+          notes.push("left small_model because you edited it");
         }
       }
     }
@@ -551,12 +586,21 @@ export const opencodeAdapter: AgentAdapter = {
     };
   },
   async openExtras(input) {
+    // The user named a model in OpenCode's own args: theirs stands, and an
+    // ai& one takes titles and summaries too.
+    const [named] = takeFlagValues(input.args, ["--model", "-m"]).values.slice(-1);
+    if (named !== undefined) {
+      if (!named.startsWith(`${OPENCODE_PROVIDER_ID}/`) || process.env.OPENCODE_CONFIG_CONTENT) {
+        return {};
+      }
+      return { env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ small_model: named }) } };
+    }
     const config = await readOpencodeConfig();
     const model = typeof config.model === "string" ? config.model : "";
     if (!model || model.startsWith(`${OPENCODE_PROVIDER_ID}/`)) return {};
     if (process.env.OPENCODE_CONFIG_CONTENT) return {};
     const wired = Object.keys(aiandProviderField(config, "models") ?? {}).map((id) => ({ id }));
     const ref = `${OPENCODE_PROVIDER_ID}/${resolveDefault(wired, input.profileModel)}`;
-    return { env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: ref }) } };
+    return { env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: ref, small_model: ref }) } };
   },
 };

@@ -492,6 +492,7 @@ export const copilotAdapter: AgentAdapter = {
   label: "GitHub Copilot",
   bin: COPILOT_BIN,
   install: COPILOT_INSTALL,
+  launchModelFlags: ["--model"],
   detect(): DetectResult {
     return detectBinary(COPILOT_BIN);
   },
