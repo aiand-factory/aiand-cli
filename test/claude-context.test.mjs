@@ -67,3 +67,26 @@ test("API catalog context_window matches permanent and launcher hints for every 
     }
   });
 });
+
+// Through the real launcher: aiand lifts a concrete --model and --fast-model,
+// and leaves an alias for Claude Code, whose slot then sets the budget.
+test("aiand claude sizes the budget for --model, or for the slot an alias starts on", async () => {
+  await withMockGateway(async ({ url }) => {
+    const env = cliEnv({
+      AIAND_HOME: home,
+      AIAND_CONFIG_DIR: cfg,
+      AIAND_API_KEY: "sk-context-parity",
+      AIAND_BASE_URL: `${url}/stub/context-catalog`,
+      AIAND_CAPTURE: capture,
+      PATH: hermeticPath(bin, "/usr/bin", "/bin"),
+    });
+    const hint = async (args) => {
+      const opened = await runCli(["claude", ...args, "--help"], { env });
+      assert.equal(opened.code, 0, opened.stderr);
+      return JSON.parse(readFileSync(capture, "utf8")).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
+    };
+    const fast = ["--fast-model", "openai/gpt-5"];
+    assert.equal(await hint(["--model", "zai-org/glm-5.3", ...fast]), "1048576");
+    assert.equal(await hint(["--model", "zai-org/glm-5.3", ...fast, "--model", "haiku"]), "32768");
+  });
+});
