@@ -15,6 +15,15 @@ breaking changes while the command surface settles.
   the new sign-in is stored and goes to where the old key was issued, so a
   failed or cancelled sign-in keeps the old one. `--keep-remote` keeps the old
   key valid. A pasted key is never revoked.
+- `aiand claude` and `aiand claude on` point Claude Code's auto-mode safety
+  checks at the fast model (`CLAUDE_CODE_AUTO_MODE_MODEL`) instead of the main
+  one. Each check sends about 30,000 input tokens, and on the main model the
+  checks cost 1.9 to 7 times the coding work in our tests. They also set
+  `CLAUDE_CODE_AUTO_MODE_SERVER=0`, so Claude Code runs the checks itself
+  rather than asking ai& for server-side checks it cannot provide; this keeps
+  auto mode working when Claude Code removes its fallback for them.
+- The README and the npm page link the CLI guide at
+  [docs.aiand.com/cli](https://docs.aiand.com/cli/), not the docs home page.
 
 ## [0.8.0] - 2026-11-20
 
