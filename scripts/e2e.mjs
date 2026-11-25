@@ -1086,9 +1086,10 @@ INSERT INTO model_providers (id, name, type, settings_json) VALUES ('user-1', 'm
         "--",
         "--provider",
         "anthropic",
-        "--model=y",
+        // Hermes's own model flags name the session model, so they must agree.
+        "--model=zai-org/glm-5.3",
         "-m",
-        "z",
+        "zai-org/glm-5.3",
         "--keep",
       ],
       {
@@ -1127,7 +1128,7 @@ INSERT INTO model_providers (id, name, type, settings_json) VALUES ('user-1', 'm
     (hermesChildEnv.match(/^HERMES_\w+=.*$/gm) ?? []).join(" "),
   );
   check(
-    "run-agent hermes leads with its routing args and strips --provider/--model/-m from the passthrough (both forms)",
+    "run-agent hermes leads with its routing args, takes --model/-m from the passthrough as the session model and strips --provider (both forms)",
     JSON.stringify(hermesArgs) ===
       JSON.stringify(["--provider", "aiand", "--model", "zai-org/glm-5.3", "--keep"]),
     JSON.stringify(hermesArgs),

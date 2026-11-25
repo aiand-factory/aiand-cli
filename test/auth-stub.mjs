@@ -40,6 +40,9 @@ function stubServer() {
     /** When "down", the device endpoints 500 — the device-to-paste fallback
      * path: service torn down, identity API still serving. */
     deviceMode: "up",
+    /** When set, the device-code poll answers this RFC 8628 error (e.g. "access_denied"): a
+     * sign-in that fails while every other endpoint, revoke included, still works. */
+    tokenError: null,
     /** An HTTP status /auth/device/logout answers instead of 200 (a host that does not serve it: 404). */
     logoutStatus: null,
     /** Runs when a /auth/device/logout request arrives, before it is answered: a slow revoke's window. */
@@ -129,6 +132,7 @@ function stubServer() {
           });
         }
         if (params.grant_type === "urn:ietf:params:oauth:grant-type:device_code") {
+          if (state.tokenError) return reply(400, { error: state.tokenError });
           return reply(200, {
             access_token: MINTED_ACCESS_TOKEN,
             refresh_token: MINTED_REFRESH_TOKEN,

@@ -258,4 +258,23 @@ assert.deepEqual(
   `pin devDependencies to exact versions; found: ${ranged.map(([n, v]) => `${n}@${v}`).join(", ")}`,
 );
 
+const { formatAgentSummary } = await import(
+  pathToFileURL(join(repoRoot, "dist", "agents", "install-summary.js")).href
+);
+const installSummary = formatAgentSummary(AGENTS, () => false);
+for (const adapter of AGENTS) {
+  const row = `  ${adapter.id}  Install it with:`;
+  if (adapter.configOnly) {
+    assert.equal(
+      installSummary.includes(row),
+      false,
+      `${adapter.id} is not a PATH binary and must stay out of the install summary`,
+    );
+    continue;
+  }
+  assert.ok(
+    installSummary.includes(`${row} ${adapter.install.command}`),
+    `the install summary must print ${adapter.id}'s install.command`,
+  );
+}
 console.log(`check-dist ok: ${binName} v${pkg.version}, 0 runtime deps`);

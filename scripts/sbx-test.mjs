@@ -2044,7 +2044,8 @@ define(
     // shadow or confuse the overlay routing.
     const r = launchCheck(
       "hermes",
-      ["hermes", "--model", model, "--", "--provider", "x", "--model", "y", "--dump"],
+      // Hermes's own --model after `--` names the session model, so it must agree.
+      ["hermes", "--model", model, "--", "--provider", "x", "--model", model, "--dump"],
       {
         extra: {
           ANTHROPIC_API_KEY: "inherited-anthropic-key",

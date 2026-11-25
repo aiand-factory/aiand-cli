@@ -1393,6 +1393,62 @@ if (!HAS_BASH) {
   );
 }
 
+// The summary, the cache flag, the version read, and the off-Windows launcher.
+{
+  const sh = readFileSync(join(ROOT, "install.sh"), "utf8");
+  const ps1 = readFileSync(join(ROOT, "install.ps1"), "utf8");
+  const summaryScript = "dist/agents/install-summary.js";
+  check(
+    "both installers print the agent summary from the installed package",
+    sh.includes("print_agent_summary") &&
+      sh.includes(summaryScript) &&
+      ps1.includes("Write-AgentSummary") &&
+      ps1.includes(summaryScript),
+    summaryScript,
+  );
+  check(
+    "source-build npm ci passes --prefer-offline in both installers",
+    sh.includes("npm ci --ignore-scripts --no-fund --no-audit --prefer-offline") &&
+      ps1.includes("npm ci --ignore-scripts --no-fund --no-audit --prefer-offline"),
+    "npm ci",
+  );
+  const versionFn = sh.slice(
+    sh.indexOf("package_json_version() {"),
+    sh.indexOf("\n# The version of the aiand install at INSTALL_DIR"),
+  );
+  const versionProbe = spawnSync(
+    "bash",
+    [
+      "-c",
+      [
+        "set -euo pipefail",
+        versionFn,
+        "pkg=$(mktemp)",
+        'printf \'%s\' \'{"name":"@aiand/cli","version":"1.2.3","nested":{"version":"9.9.9"}}\' > "$pkg"',
+        'got=$(package_json_version "$pkg")',
+        'rm -f "$pkg"',
+        "printf '%s' \"$got\"",
+      ].join("\n"),
+    ],
+    { encoding: "utf8" },
+  );
+  check(
+    "install.sh reads the first version key, not a later one on the same line",
+    (versionProbe.status ?? 1) === 0 &&
+      (versionProbe.stdout ?? "") === "1.2.3" &&
+      sh.includes("package_json_version ") &&
+      !sh.includes('JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version'),
+    (versionProbe.stderr ?? versionProbe.stdout ?? "").split("\n")[0],
+  );
+  check(
+    "install.ps1 runs aiand.cmd only on Windows",
+    ps1.includes("if ($env:OS -eq 'Windows_NT') { $launcherName = 'aiand.cmd' }") &&
+      ps1.includes("Show-InstalledVersion -Launcher $launcher") &&
+      ps1.includes("Invoke-LoginOffer -Launcher $launcher"),
+    "launcher",
+  );
+}
+
 // A push to main must not change what a new install runs: the one-liners take
 // the bootstrap from the latest release's assets (docs/adr/0001).
 {
