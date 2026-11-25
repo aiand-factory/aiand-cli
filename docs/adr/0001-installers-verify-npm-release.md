@@ -152,8 +152,9 @@ A reader who wants no GitHub trust in the bootstrap installs from npm
   both parties. With them, npm versions are immutable, so control of GitHub
   alone can only point a correct installer at an older published version (a
   downgrade). The installers refuse that unless `AIAND_VERSION` asks for it,
-  and never go below 0.8.0. A stolen npm token can publish a new
-  version, but no GitHub release vouches for it.
+  and never go below 0.8.0. Once the package disallows tokens, no npm
+  token can publish at all; until then, a stolen one can publish a version
+  that no GitHub release vouches for.
 - That claim is about the tarball, not the installer script. On a fresh
   install, GitHub alone is enough to run arbitrary code, through the
   bootstrap script (see above).
