@@ -105,8 +105,14 @@ describe("claude on", () => {
     const { env } = readSettings();
     assert.equal(env.CLAUDE_CODE_AUTO_MODE_MODEL, FAST);
     assert.equal(env.CLAUDE_CODE_AUTO_MODE_SERVER, "0");
+    // --model puts every slot on the chosen model, safety checks included (AIA-3330).
     await claudeAdapter.enable(enableInput({ model: OTHER, pinModel: true }));
-    assert.equal(readSettings().env.CLAUDE_CODE_AUTO_MODE_MODEL, FAST, "--model moves main only");
+    assert.equal(
+      readSettings().env.CLAUDE_CODE_AUTO_MODE_MODEL,
+      OTHER,
+      "--model moves the checks too",
+    );
+    assert.equal(readSettings().env.CLAUDE_CODE_AUTO_MODE_SERVER, "0");
   });
 
   test("with no fast model in the catalog, safety checks share the main model", async () => {
