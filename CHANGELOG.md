@@ -7,6 +7,11 @@ breaking changes while the command surface settles.
 
 ## [Unreleased]
 
+### Changed
+
+- The README and the npm page link the CLI guide at
+  [docs.aiand.com/cli](https://docs.aiand.com/cli/), not the docs home page.
+
 ## [0.8.0] - 2026-11-20
 
 ### Added
