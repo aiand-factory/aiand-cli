@@ -5,7 +5,7 @@ import { windowsSystemTool } from "./win-spawn.js";
 
 /** How long to wait for an opener exit code before assuming it launched and
  * stayed open (real browsers outlive login). */
-const LAUNCH_OK_MS = 2 * SECOND_MS;
+export const LAUNCH_OK_MS = 2 * SECOND_MS;
 
 /**
  * The opener for `url`. Never `cmd /c start`: cmd re-parses `& | ^ < >` after
@@ -30,8 +30,13 @@ export function browserCommand(
  * quick nonzero exit (missing handler); otherwise treats a still-running
  * opener as success after LAUNCH_OK_MS. AIAND_NO_BROWSER=1 skips the opener
  * entirely (test runs, a desktop whose browser isn't yours); `aiand login`
- * already skips it in an SSH session. */
-export function openBrowser(url: string): Promise<boolean> {
+ * already skips it in an SSH session. `launchOkMs` exists for tests: on a
+ * loaded machine, spawning a shell alone can outlast 2 s, and an exit-code
+ * test needs a window it cannot miss. */
+export function openBrowser(
+  url: string,
+  { launchOkMs = LAUNCH_OK_MS }: { launchOkMs?: number } = {},
+): Promise<boolean> {
   if (process.env.AIAND_NO_BROWSER === "1") return Promise.resolve(false);
   const [command, args] = browserCommand(url, process.platform, process.env);
 
@@ -60,7 +65,7 @@ export function openBrowser(url: string): Promise<boolean> {
     launchTimer = setTimeout(() => {
       child.unref();
       settle(true);
-    }, LAUNCH_OK_MS);
+    }, launchOkMs);
 
     child.once("error", () => settle(false));
     child.once("close", (code) => {
