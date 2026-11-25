@@ -391,7 +391,7 @@ async function enable(input: EnableInput): Promise<EnableResult> {
  * The OpenCode release CI and the install hint pin (check-dist keeps ci.yml in step).
  * @public read from dist/ by scripts/check-dist.mjs
  */
-export const OPENCODE_VERSION = "2.0.29";
+export const OPENCODE_VERSION = "2.3.2";
 
 // OpenCode 2 ships as @opencode/cli. The old opencode-ai package still
 // installs OpenCode 1, which gets no more fixes.

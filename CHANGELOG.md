@@ -68,7 +68,7 @@ breaking changes while the command surface settles.
 ### Changed
 
 - OpenCode 2 is the supported OpenCode. The install hint and the offer to
-  install in `aiand opencode` now use `npm install -g @opencode/cli@2.0.29`;
+  install in `aiand opencode` now use `npm install -g @opencode/cli@2.3.2`;
   the old `opencode-ai` package still installs OpenCode 1, which gets no more
   fixes. `aiand opencode on` warns when OpenCode 1 is installed and names the
   upgrade command (`opencode upgrade --major`).

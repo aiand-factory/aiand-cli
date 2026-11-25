@@ -125,7 +125,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run build
-      - run: npm install -g @opencode/cli@2.0.29
+      - run: npm install -g @opencode/cli@2.3.2
       # The test skips itself without the binary; fail here instead, so a
       # broken install cannot pass as a skip.
       - run: opencode --version
@@ -306,7 +306,7 @@ jobs:
       # with --ignore-scripts, and omp is a digest-checked binary. Each of the
       # four is an agent the key step launches with the key by design.
       - if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
-        run: npm install -g @opencode/cli@2.0.29
+        run: npm install -g @opencode/cli@2.3.2
       - run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.87.1
       # check-dist keeps the pin in step with the CLI's install hint; the
       # gated run-agent copilot smoke below needs the same-repo key.

@@ -1537,7 +1537,7 @@ describe("opencode 2 support", () => {
     }
   };
 
-  // The flag rule measured on @opencode/cli 2.0.29: where `--standalone`
+  // The flag rule measured on @opencode/cli 2.0.29 and 2.3.2: where `--standalone`
   // parses, and which commands start the background service with the launch
   // env when none is running.
   test("opencodeLaunch places --standalone only for OpenCode 2", () => {
@@ -1622,12 +1622,12 @@ describe("opencode 2 support", () => {
   });
 
   test("opencodeMajorVersion reads OpenCode 2 and 1 version lines", async () => {
-    assert.equal(await withOpencode("opencode v2.0.29", () => opencodeMajorVersion()), 2);
+    assert.equal(await withOpencode("opencode v2.3.2", () => opencodeMajorVersion()), 2);
     assert.equal(await withOpencode("1.18.32", () => opencodeMajorVersion()), 1);
   });
 
   test("opencodeMajorVersion is null for a failing, odd or missing binary", async () => {
-    assert.equal(await withOpencode("opencode v2.0.29", () => opencodeMajorVersion(), 3), null);
+    assert.equal(await withOpencode("opencode v2.3.2", () => opencodeMajorVersion(), 3), null);
     assert.equal(await withOpencode("not a version", () => opencodeMajorVersion()), null);
     const empty = join(process.env.AIAND_HOME, "..", "oc-empty");
     mkdirSync(empty, { recursive: true });
@@ -1646,7 +1646,7 @@ describe("opencode 2 support", () => {
       v1.warnings.some((w) => warn.test(w)),
       JSON.stringify(v1.warnings),
     );
-    const v2 = await withOpencode("opencode v2.0.29", () => opencodeAdapter.enable(enableInput()));
+    const v2 = await withOpencode("opencode v2.3.2", () => opencodeAdapter.enable(enableInput()));
     assert.ok(!v2.warnings.some((w) => warn.test(w)), JSON.stringify(v2.warnings));
   });
 
@@ -1657,7 +1657,7 @@ describe("opencode 2 support", () => {
       profileName: "default",
       catalog: [catalogModel("zai-org/glm-5.3")],
     };
-    const v2 = await withOpencode("opencode v2.0.29", () => opencodeAdapter.sessionLaunch(input));
+    const v2 = await withOpencode("opencode v2.3.2", () => opencodeAdapter.sessionLaunch(input));
     try {
       assert.deepEqual(v2.buildLaunch(["run", "hi"]), {
         args: ["run", "--standalone", "hi"],

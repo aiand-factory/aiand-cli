@@ -139,7 +139,7 @@ describe("aiand <agent> opens the agent", () => {
     plantStub(
       v2Bin,
       "opencode",
-      `if [ "$1" = "--version" ]; then echo "opencode v2.0.29"; exit 0; fi\n${CAPTURE_STUB}`,
+      `if [ "$1" = "--version" ]; then echo "opencode v2.3.2"; exit 0; fi\n${CAPTURE_STUB}`,
     );
     mkdirSync(dirname(opencodeJson(state)), { recursive: true });
     writeFileSync(opencodeJson(state), '{ "model": "anthropic/claude-sonnet-4-5" }\n');

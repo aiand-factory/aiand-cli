@@ -608,7 +608,7 @@ exit 42`,
     plantStub(
       binDir,
       "opencode",
-      `if [ "$1" = "--version" ]; then echo "opencode v2.0.29"; exit 0; fi\n${CAPTURE_STUB}`,
+      `if [ "$1" = "--version" ]; then echo "opencode v2.3.2"; exit 0; fi\n${CAPTURE_STUB}`,
     );
     const capture = captureDir();
     try {
@@ -638,7 +638,7 @@ exit 42`,
     plantStub(
       binDir,
       "opencode",
-      `if [ "$1" = "--version" ]; then echo "opencode v2.0.29"; exit 0; fi\n${CAPTURE_STUB}`,
+      `if [ "$1" = "--version" ]; then echo "opencode v2.3.2"; exit 0; fi\n${CAPTURE_STUB}`,
     );
     const capture = captureDir();
     try {
