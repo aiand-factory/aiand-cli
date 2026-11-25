@@ -9,6 +9,8 @@ browser, then points your coding agent at ai& (Claude Code, OpenCode, Codex and
 others) without a proxy or a daemon. It also sends prompts, lists models and
 prices, and shows your requests and usage.
 
+Guide: [docs.aiand.com/cli](https://docs.aiand.com/cli/)
+
 ## Quick start
 
 1. **Install.** You need Node.js 22 or newer.
