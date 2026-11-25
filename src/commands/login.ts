@@ -28,7 +28,9 @@ API first; a pasted key is never rotated or revoked by this CLI.
 
 Signing in again replaces the profile's session. Once the new sign-in is
 stored, the key the old session minted is revoked where it was issued, as
-\`aiand logout\` would; a failed or cancelled sign-in keeps the old session.`;
+\`aiand logout\` would. A sign-in that fails or is cancelled before the new
+one is stored keeps the old session; a step that fails after that still
+revokes the old key.`;
 
 export async function run(argv: string[]): Promise<void> {
   const parsed = parse(argv, {
@@ -77,18 +79,28 @@ export async function run(argv: string[]): Promise<void> {
     ? await noteReplacedSignIn(profile.name, existing)
     : null;
 
-  if (pasteMode) {
-    await pasteLogin({
-      profile: profile.name,
-      fromStdin: bool(parsed, "with-token"),
-      interactive: bool(parsed, "paste"),
-      json: bool(parsed, "json"),
-    });
-  } else if (isInteractive()) {
-    await browserLogin({ profile: profile.name, json: bool(parsed, "json") });
-  } else {
-    await deviceLogin({ profile: profile.name, json: bool(parsed, "json") });
+  // A step that fails after the new sign-in is stored must not skip retiring the old one.
+  let failure: unknown;
+  try {
+    await signIn();
+  } catch (error) {
+    failure = error;
   }
-
   if (replaced) await retireReplacedSignIn(replaced, { keepRemote: bool(parsed, "keep-remote") });
+  if (failure !== undefined) throw failure;
+
+  async function signIn(): Promise<void> {
+    if (pasteMode) {
+      await pasteLogin({
+        profile: profile.name,
+        fromStdin: bool(parsed, "with-token"),
+        interactive: bool(parsed, "paste"),
+        json: bool(parsed, "json"),
+      });
+    } else if (isInteractive()) {
+      await browserLogin({ profile: profile.name, json: bool(parsed, "json") });
+    } else {
+      await deviceLogin({ profile: profile.name, json: bool(parsed, "json") });
+    }
+  }
 }

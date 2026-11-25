@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
+import fsp from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import test, { describe } from "node:test";
@@ -21,6 +23,7 @@ import {
 
 const loginCommand = await import("../dist/commands/login.js");
 const config = await import("../dist/config.js");
+const replace = await import("../dist/auth/replace.js");
 
 registerAuthStub();
 
@@ -220,6 +223,53 @@ describe("login replacing a sign-in (serial)", { concurrency: 1 }, () => {
     assert.equal((await config.loadCredential("default")).access_token, MINTED_ACCESS_TOKEN);
     assert.deepEqual(state.revocations, []);
     assert.match(stderr, /did not record where it was issued/);
+  });
+
+  test("a step that fails after the new sign-in is stored still revokes the old key", async () => {
+    await seed({
+      access_token: "sk-old",
+      refresh_token: "rt-old",
+      origin: "device",
+      bound_to: stubBinding(),
+    });
+    // activateProfile writes config.json (an atomic rename) after the credential is saved.
+    const original = fsp.rename;
+    fsp.rename = async (from, to, ...rest) => {
+      if (String(to).endsWith("config.json")) throw Object.assign(new Error("no space left"), { code: "ENOSPC" });
+      return original(from, to, ...rest);
+    };
+    syncBuiltinESMExports();
+    const captured = captureOutput();
+    try {
+      await assert.rejects(loginCommand.run(["--force"]), /no space left/);
+    } finally {
+      fsp.rename = original;
+      syncBuiltinESMExports();
+      captured.restore();
+    }
+    assert.equal((await config.loadCredential("default")).access_token, MINTED_ACCESS_TOKEN);
+    assert.deepEqual(state.revocations, ["rt-old"]);
+  });
+
+  test("a stored sign-in that cannot be read back revokes nothing and says so", async () => {
+    await seed({
+      access_token: "sk-old",
+      refresh_token: "rt-old",
+      origin: "device",
+      bound_to: stubBinding(),
+    });
+    const replaced = await replace.noteReplacedSignIn("default", await config.loadCredential("default"));
+    writeFileSync(join(dir, "credentials.json"), "{ not json");
+    const captured = captureOutput();
+    let outcome;
+    try {
+      outcome = await replace.retireReplacedSignIn(replaced);
+    } finally {
+      captured.restore();
+    }
+    assert.equal(outcome, "unconfirmed");
+    assert.deepEqual(state.revocations, []);
+    assert.match(captured.log.err.join(""), /Could not read the stored sign-in/);
   });
 
   test("without --force and no terminal, an existing sign-in is refused untouched", async () => {

@@ -34,7 +34,14 @@ export async function noteReplacedSignIn(
   };
 }
 
-export type RetireOutcome = "revoked" | "kept" | "failed" | "pasted" | "unrevocable" | "unchanged";
+export type RetireOutcome =
+  | "revoked"
+  | "kept"
+  | "failed"
+  | "pasted"
+  | "unrevocable"
+  | "unchanged"
+  | "unconfirmed";
 
 /**
  * Revoke the key a login just replaced. Runs only after the new sign-in is
@@ -48,7 +55,20 @@ export async function retireReplacedSignIn(
   opts: { keepRemote?: boolean } = {},
 ): Promise<RetireOutcome> {
   const { profile, previous, binding } = replaced;
-  const current = await loadCredential(profile);
+  const stillValid = `The key "${profile}" signed in with before is still valid. Revoke it at ${CONSOLE_KEYS_URL} if you no longer need it.`;
+  let current: LoadedCredential | null;
+  try {
+    current = await loadCredential(profile);
+  } catch (error) {
+    // Without the stored sign-in there is no telling which key is current, so nothing is revoked.
+    err(
+      style.yellow(
+        `Could not read the stored sign-in for "${profile}", so the replaced key was not revoked: ${redactSecrets(safeLine((error as Error).message ?? String(error)))}`,
+      ),
+    );
+    err(style.dim(stillValid));
+    return "unconfirmed";
+  }
   if (!current || current.access_token === previous.access_token) return "unchanged";
 
   // A copy of the old key in a pre-0.8 snapshot would outlive the sign-in,
@@ -63,7 +83,6 @@ export async function retireReplacedSignIn(
     );
   }
 
-  const stillValid = `The key "${profile}" signed in with before is still valid. Revoke it at ${CONSOLE_KEYS_URL} if you no longer need it.`;
   if (previous.origin === CREDENTIAL_ORIGIN.PASTE) {
     err(style.dim(`The replaced key was pasted, so this CLI did not revoke it. ${stillValid}`));
     return "pasted";
