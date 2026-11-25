@@ -4,6 +4,7 @@
 /src/auth/              @jethac @aiand-atul @islomjon-aiand
 /src/config.ts          @jethac @aiand-atul @islomjon-aiand
 /src/config-files.ts    @jethac @aiand-atul @islomjon-aiand
+/src/secrets.ts          @jethac @aiand-atul @islomjon-aiand
 /install.sh             @jethac @aiand-atul @islomjon-aiand
 /install.ps1            @jethac @aiand-atul @islomjon-aiand
 /package.json           @jethac @aiand-atul @islomjon-aiand
