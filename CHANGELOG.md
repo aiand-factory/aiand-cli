@@ -9,6 +9,11 @@ breaking changes while the command surface settles.
 
 ### Fixed
 
+- Bare `aiand copilot --model <id>` and `--model=<id>` launches now validate the
+  requested id against the catalog and refuse to spawn when GitHub Copilot is
+  already configured for a different model, instead of overriding that model
+  unchecked. The error points to `aiand copilot on --model <id>`; a matching
+  model still opens with the original arguments.
 - `--model <id>` now puts every model slot of Claude Code on that model:
   Opus, Sonnet, Fable, subagent, and the fast `haiku` slot that session
   titles and other background calls use. Before, `aiand claude on --model`
