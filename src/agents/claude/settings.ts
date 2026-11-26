@@ -24,6 +24,8 @@ const ATTRIBUTION_KEY = "CLAUDE_CODE_ATTRIBUTION_HEADER";
  * https://code.claude.com/docs/en/model-config#which-ids-claude_code_max_context_tokens-applies-to
  */
 const DISABLE_1M_KEY = "CLAUDE_CODE_DISABLE_1M_CONTEXT";
+/** Keep the routed settings token out of Bash commands and hooks. */
+const SUBPROCESS_ENV_SCRUB_KEY = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
 const OPUS_SLOT = "ANTHROPIC_DEFAULT_OPUS_MODEL";
 const SONNET_SLOT = "ANTHROPIC_DEFAULT_SONNET_MODEL";
 const FABLE_SLOT = "ANTHROPIC_DEFAULT_FABLE_MODEL";
@@ -133,6 +135,7 @@ export function gatewayEnv(apiKey: string, baseUrl: string): Env {
     [MARKER_KEY]: ENV_ON,
     [ATTRIBUTION_KEY]: ENV_OFF,
     [DISABLE_1M_KEY]: ENV_ON,
+    [SUBPROCESS_ENV_SCRUB_KEY]: ENV_ON,
     [AUTO_MODE_SERVER_KEY]: ENV_OFF,
     // A switch left on in the shell or a lower settings file would route
     // Claude Code to that cloud whatever ANTHROPIC_BASE_URL says.

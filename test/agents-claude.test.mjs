@@ -98,6 +98,33 @@ describe("claude on", () => {
     assert.deepEqual(await claudeAdapter.probe(), { active: true, model: MAIN });
   });
 
+  test("permanent and launcher settings enable subprocess credential scrubbing", async () => {
+    const key = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
+    const original = { theme: "dark", env: { FOO: "bar" } };
+    seed(original);
+    await claudeAdapter.enable(enableInput());
+    assert.equal(readSettings().env[key], "1");
+
+    const launch = await claudeAdapter.sessionLaunch({ apiKey: "sk-scrub", catalog: CATALOG });
+    try {
+      const settings = JSON.parse(readFileSync(launch.args[1], "utf8"));
+      assert.equal(settings.env[key], "1");
+    } finally {
+      await launch.cleanup();
+    }
+
+    await claudeAdapter.disable();
+    assert.deepEqual(readSettings(), original, "off removes the switch on created");
+
+    seed({ env: { [key]: "0" } });
+    await claudeAdapter.enable(enableInput());
+    await claudeAdapter.enable(enableInput());
+    assert.equal(await claudeAdapter.refreshKey({ apiKey: "sk-rotated" }), true);
+    assert.equal(readSettings().env[key], "1");
+    await claudeAdapter.disable();
+    assert.deepEqual(readSettings().env, { [key]: "0" }, "off restores the user's switch");
+  });
+
   // Auto mode's safety checks default to the Sonnet slot, ~30k
   // uncached input tokens each, and cost several times the coding work.
   test("auto-mode safety checks run on the fast model, on Claude Code's own requests", async () => {
