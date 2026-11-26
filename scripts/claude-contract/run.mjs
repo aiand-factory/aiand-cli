@@ -467,7 +467,7 @@ async function faults() {
   await waitScreen("P", /API Usage Billing/);
   const pAiand = childOf(panePid("P"));
   const pClaude = childOf(pAiand);
-  sh(`kill -9 ${pAiand}`);
+  if (pAiand) sh(`kill -9 ${pAiand}`);
   await sleep(1500);
   const orphan = sh(`ps -o ppid=,stat= -p ${pClaude} || true`).trim();
   observe(
