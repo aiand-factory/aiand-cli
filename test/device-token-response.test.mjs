@@ -47,10 +47,6 @@ test("a complete token response is returned unchanged", () => {
   };
 
   assert.deepEqual(validTokenResponse(body), body);
-  assert.deepEqual(validTokenResponse({ ...complete, token_type: "" }), {
-    ...complete,
-    token_type: "",
-  });
 });
 
 test("a missing or empty refresh_token is refused", async () => {
@@ -104,6 +100,7 @@ test("a missing access_token or a non-positive expires_in is refused", () => {
     { ...complete, expires_in: Number.POSITIVE_INFINITY },
     { ...complete, expires_in: Number.NaN },
     withoutType,
+    { ...complete, token_type: "" },
     null,
     [],
   ]) {

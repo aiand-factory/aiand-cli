@@ -1,4 +1,5 @@
 import { ApiError, CliError, EXIT, loginCancelled } from "../cli/errors.js";
+import { isValidKeyShape } from "../cli/redact.js";
 import { isLoopbackHost } from "../config.js";
 import { SECOND_MS } from "../time.js";
 import { parseJsonResponse, publicRequest, readBoundedText } from "./client.js";
@@ -37,13 +38,14 @@ export function validTokenResponse(body: unknown): TokenResponse {
   const { access_token, refresh_token, expires_in, token_type } = candidate;
   if (
     typeof access_token !== "string" ||
-    access_token.length === 0 ||
+    !isValidKeyShape(access_token) ||
     typeof refresh_token !== "string" ||
     refresh_token.length === 0 ||
     typeof expires_in !== "number" ||
     !Number.isFinite(expires_in) ||
     expires_in <= 0 ||
-    typeof token_type !== "string"
+    typeof token_type !== "string" ||
+    token_type.length === 0
   ) {
     throw incompleteTokenResponse();
   }
@@ -62,6 +64,10 @@ export function validTokenResponse(body: unknown): TokenResponse {
       delete result.org;
       return result as TokenResponse;
     }
+    return {
+      ...candidate,
+      org: { id: fields.id, name: fields.name },
+    } as TokenResponse;
   }
   return body as TokenResponse;
 }
