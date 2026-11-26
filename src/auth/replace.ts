@@ -55,7 +55,7 @@ export async function retireReplacedSignIn(
   opts: { keepRemote?: boolean } = {},
 ): Promise<RetireOutcome> {
   const { profile, previous, binding } = replaced;
-  const stillValid = `The key "${profile}" signed in with before is still valid. Revoke it at ${CONSOLE_KEYS_URL} if you no longer need it.`;
+  const stillValid = `The key "${safeLine(profile)}" signed in with before is still valid. Revoke it at ${CONSOLE_KEYS_URL} if you no longer need it.`;
   let current: LoadedCredential | null;
   try {
     current = await loadCredential(profile);
