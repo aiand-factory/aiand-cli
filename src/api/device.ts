@@ -50,7 +50,7 @@ export function validTokenResponse(body: unknown): TokenResponse {
     throw incompleteTokenResponse();
   }
 
-  if ("org" in candidate) {
+  if (Object.hasOwn(candidate, "org")) {
     const org = candidate.org;
     const fields =
       org !== null && typeof org === "object" ? (org as Record<string, unknown>) : null;
